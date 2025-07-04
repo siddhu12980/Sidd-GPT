@@ -39,6 +39,7 @@ export default function ChatClient({
   const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const firstMessageTriggeredRef = useRef(false);
+  const { user } = useUser(); // Get the current user
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentPage, setCurrentPage] = useState("chat"); // "chat" or "pricing"
@@ -69,6 +70,9 @@ export default function ChatClient({
     setMessages,
   } = useChat({
     api: "/api/chat",
+    body: {
+      userId: user?.id || "anonymous", // Pass user ID for Mem0
+    },
 
     initialMessages: initialMessages.map((m) => ({
       ...m,
@@ -319,7 +323,7 @@ export default function ChatClient({
         </div>
 
         {/* Input Area */}
-        <div className="w-full max-w-3xl mx-auto sticky bottom-0 bg-[#212121] pb-6 pt-2 z-10">
+        <div className="w-full max-w-2xl mx-auto sticky bottom-0 bg-[#212121] pb-6  z-10">
           <CustomInputArea
             input={input}
             setInput={setInput}

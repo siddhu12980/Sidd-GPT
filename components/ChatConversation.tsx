@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
-import { Edit, Trash2 } from "lucide-react";
+import { Edit, Trash2, Brain } from "lucide-react";
 import ChatActionBar from "./ChatActionBar";
 import "./hide-scrollbar.css";
 import { Markdown } from "./Format";
@@ -104,6 +104,13 @@ export default function ChatConversation({
                     : undefined
                 }
               />
+              {/* Memory indicator - show on first AI message or when context is used */}
+              {index === 1 && (
+                <div className="flex items-center gap-1 mt-2 text-xs text-gray-400">
+                  <Brain className="w-3 h-3" />
+                  <span>Using conversation memory</span>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-end group">

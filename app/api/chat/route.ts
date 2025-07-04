@@ -1,8 +1,8 @@
 import { streamText, UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { createMem0, retrieveMemories, addMemories } from "@mem0/vercel-ai-provider";
 
-import { createMem0 } from "@mem0/vercel-ai-provider";
-
+// Initialize Mem0 with proper configuration
 const mem0 = createMem0({
   provider: "openai",
   mem0ApiKey: process.env.MEM0_API_KEY,
@@ -10,24 +10,35 @@ const mem0 = createMem0({
   config: {
     compatibility: "strict",
   },
+  // Optional global config
+  mem0Config: {
+    // You can set default values here
+  },
 });
-
 
 export async function POST(req: Request) {
   try {
-
-    
-
     console.log("=== API Route Debug Start ===");
 
-    // Check if OpenAI API key is set
-    const apiKey = process.env.OPENAI_API_KEY;
-    console.log("OpenAI API Key exists:", !!apiKey);
-    console.log("API Key length:", apiKey ? apiKey.length : 0);
+    // Check if required API keys are set
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const mem0ApiKey = process.env.MEM0_API_KEY;
+    
+    console.log("OpenAI API Key exists:", !!openaiApiKey);
+    console.log("Mem0 API Key exists:", !!mem0ApiKey);
+    
+    if (!openaiApiKey) {
+      throw new Error("OpenAI API key is not configured");
+    }
+    
+    if (!mem0ApiKey) {
+      throw new Error("Mem0 API key is not configured");
+    }
 
-    const { messages }: { messages: UIMessage[] } = await req.json();
+    const { messages, userId }: { messages: UIMessage[]; userId?: string } = await req.json();
     console.log("Received messages:", messages);
     console.log("Messages count:", messages.length);
+    console.log("User ID:", userId);
 
     // Validate messages
     if (!messages || !Array.isArray(messages)) {
@@ -35,11 +46,41 @@ export async function POST(req: Request) {
       return new Response("Invalid messages format", { status: 400 });
     }
 
+    // Use provided userId or fallback to a default
+    const currentUserId = userId || "default-user";
+    
+    // Get the latest user message for memory retrieval
+    const latestUserMessage = messages
+      .filter(msg => msg.role === "user")
+      .pop();
+    
+    let enhancedSystemPrompt = "You are a helpful assistant.";
+    
+    // Retrieve relevant memories if we have a user message
+    if (latestUserMessage && typeof latestUserMessage.content === "string") {
+      try {
+        console.log("Retrieving memories for user:", currentUserId);
+        const memories = await retrieveMemories(latestUserMessage.content, { 
+          user_id: currentUserId,
+          mem0ApiKey: process.env.MEM0_API_KEY 
+        });
+        
+        if (memories) {
+          enhancedSystemPrompt = `${memories}\n\nYou are a helpful assistant.`;
+          console.log("Memories retrieved and added to system prompt");
+        }
+      } catch (memoryError) {
+        console.warn("Failed to retrieve memories:", memoryError);
+        // Continue without memories if retrieval fails
+      }
+    }
+
     console.log("Creating streamText with model: gpt-4o-mini");
+    console.log("Enhanced system prompt:", enhancedSystemPrompt);
 
     const result = streamText({
-      model: mem0("gpt-4o-mini", { user_id: "borat" }),
-      system: "You are a helpful assistant.",
+      model: mem0("gpt-4o-mini", { user_id: currentUserId }),
+      system: enhancedSystemPrompt,
       messages,
     });
 
@@ -54,6 +95,26 @@ export async function POST(req: Request) {
       "Response headers:",
       Object.fromEntries(response.headers.entries())
     );
+
+    // Store important information in memory for future reference
+    if (latestUserMessage && typeof latestUserMessage.content === "string") {
+      try {
+        // Add the user message to memory for future context
+        await addMemories(
+          [{ 
+            role: "user", 
+            content: [{ type: "text", text: latestUserMessage.content }] 
+          }],
+          { 
+            user_id: currentUserId, 
+            mem0ApiKey: process.env.MEM0_API_KEY 
+          }
+        );
+        console.log("User message stored in memory");
+      } catch (memoryError) {
+        console.warn("Failed to store message in memory:", memoryError);
+      }
+    }
 
     console.log("=== API Route Debug End ===");
     return response;
@@ -92,5 +153,6 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   console.log("=== GET Request Debug ===");
   console.log("OpenAI API Key exists:", !!process.env.OPENAI_API_KEY);
-  return new Response("Chat API is running!");
+  console.log("Mem0 API Key exists:", !!process.env.MEM0_API_KEY);
+  return new Response("Chat API with Mem0 integration is running!");
 }

@@ -47,9 +47,14 @@ export default function Home() {
 
   const { user } = useUser();
 
+  console.log("user", user);
+  
   // Use Vercel AI SDK's useChat hook
   const { messages, input, setInput, append, isLoading } = useChat({
     api: "/api/chat",
+    body: {
+      userId: user?.id || "anonymous", // Pass user ID for Mem0
+    },
     onResponse: (response) => {
       console.log("response", response);
     },
