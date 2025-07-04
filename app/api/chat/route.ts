@@ -1,9 +1,23 @@
 import { streamText, UIMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
-import { NextRequest } from "next/server";
+
+import { createMem0 } from "@mem0/vercel-ai-provider";
+
+const mem0 = createMem0({
+  provider: "openai",
+  mem0ApiKey: process.env.MEM0_API_KEY,
+  apiKey: process.env.OPENAI_API_KEY,
+  config: {
+    compatibility: "strict",
+  },
+});
+
 
 export async function POST(req: Request) {
   try {
+
+    
+
     console.log("=== API Route Debug Start ===");
 
     // Check if OpenAI API key is set
@@ -24,7 +38,7 @@ export async function POST(req: Request) {
     console.log("Creating streamText with model: gpt-4o-mini");
 
     const result = streamText({
-      model: openai("gpt-4o-mini"),
+      model: mem0("gpt-4o-mini", { user_id: "borat" }),
       system: "You are a helpful assistant.",
       messages,
     });

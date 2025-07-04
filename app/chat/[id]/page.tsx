@@ -2,21 +2,27 @@ import { notFound } from "next/navigation";
 import mongoose from "mongoose";
 import Session from "@/models/session";
 import User from "@/models/users";
+import Message from "@/models/message";
 import { auth } from "@clerk/nextjs/server";
 import ChatClient from "../../../components/ChatClient";
-
-
 
 export default async function ChatSessionPage({
   params,
 }: {
   params: { id: string };
 }) {
+
+    const { id } = await params;
   // Ensure mongoose is connected
   if (!mongoose.connection.readyState) {
     await mongoose.connect(process.env.MONGODB_URI!, {
       dbName: process.env.MONGODB_DB,
     });
+  }
+
+  // Force model registration
+  if (!mongoose.models.Message) {
+    require("@/models/message");
   }
 
   // Get the current user
@@ -29,7 +35,7 @@ export default async function ChatSessionPage({
 
   // Find the session and populate messages
   const session = await Session.findOne({
-    _id: params.id,
+    _id: id,
     user: user._id,
   }).populate({
     path: "messages",

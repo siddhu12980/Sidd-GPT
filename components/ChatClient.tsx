@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
 import { PanelLeft, Plus, Menu, MessageCircleDashed } from "lucide-react";
@@ -37,8 +37,8 @@ export default function ChatClient({
   }[];
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-
   const router = useRouter();
+  const firstMessageTriggeredRef = useRef(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [currentPage, setCurrentPage] = useState("chat"); // "chat" or "pricing"
@@ -51,7 +51,23 @@ export default function ChatClient({
     }, 100);
   };
 
-  const { messages, input, setInput, append, isLoading, status, stop, reload } = useChat({
+  // Refresh conversations when title is updated
+  const refreshConversations = () => {
+    // This will trigger a re-render of ChatHistory component
+    // which will refetch the conversations
+  };
+
+  const {
+    messages,
+    input,
+    setInput,
+    append,
+    isLoading,
+    status,
+    stop,
+    reload,
+    setMessages,
+  } = useChat({
     api: "/api/chat",
 
     initialMessages: initialMessages.map((m) => ({
@@ -68,6 +84,52 @@ export default function ChatClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(aiMessage),
       });
+
+      // Check if we should generate a title
+      if (sessionTitle === "New Chat" && messages.length >= 2) {
+        console.log("Generating title");
+        // Get the last few messages for context
+        const recentMessages = messages.slice(-4); // Last 4 messages for context
+
+        console.log("recentMessages", recentMessages);
+
+        const context = recentMessages
+          .map((msg) => `${msg.role}: ${msg.content}`)
+          .join("\n");
+
+        console.log("context", context);
+
+        try {
+          const titleResponse = await fetch(
+            "/api/conversations/generate-title",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sessionId,
+                context,
+              }),
+            }
+          );
+
+          if (titleResponse.ok) {
+            const { title } = await titleResponse.json();
+            if (title && title !== "New Chat") {
+              // Update the conversation title
+              await fetch(`/api/conversations/${sessionId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title }),
+              });
+
+              // Trigger refresh to update sidebar
+              refreshConversations();
+            }
+          }
+        } catch (error) {
+          console.error("Failed to generate title:", error);
+        }
+      }
     },
     onResponse: (response) => {
       console.log("response", response);
@@ -77,25 +139,23 @@ export default function ChatClient({
     },
   });
 
-  console.log("messages", messages);
+  // Check if we need to trigger AI response for first message
+  useEffect(() => {
+    if (
+      !firstMessageTriggeredRef.current &&
+      initialMessages.length === 1 &&
+      initialMessages[0].role === "user" &&
+      !isLoading
+    ) {
+      // This is a new conversation with only a user message, trigger AI response
+      firstMessageTriggeredRef.current = true; // Mark as triggered
 
-  const chatHistory = [
-    "Mobile Responsiveness and ARIA",
-    "NFT Metadata URI Usage",
-    "Sports Betting Terms Explained",
-    "Response to Job Inquiry",
-    "VM Network Setup Troublesho...",
-    "Kubernetes Configuration Issues",
-    "Pipeline Script Improvement",
-    "Centering Carousel for Hero",
-    "Responsive Width Classes",
-    "Ecommerce Schema Optimiza...",
-    "Formalizing PR Description",
-    "TypeScript Property Error Fix",
-    "Convert code to Hono middle...",
-    "Form Refresh Issue",
-    "Python Exam Preparation",
-  ];
+      // Trigger AI response to the existing user message
+      reload();
+    }
+  }, [initialMessages, reload, isLoading]);
+
+  console.log("messages", messages);
 
   // New chat handler
   const handleNewChat = async () => {
@@ -163,7 +223,10 @@ export default function ChatClient({
           />
 
           {/* Chat History - Scrollable */}
-          <ChatHistory chatHistory={chatHistory} />
+          <ChatHistory
+            currentSessionId={sessionId}
+            onRefresh={refreshConversations}
+          />
 
           {/* Sidebar Footer - Fixed */}
           <SideBarFooter setCurrentPage={setCurrentPage} />
@@ -175,7 +238,7 @@ export default function ChatClient({
         <MobileSidebar
           setSidebarOpen={setSidebarOpen}
           setCurrentPage={setCurrentPage}
-          chatHistory={chatHistory}
+          chatHistory={[]} // This will be updated when ChatHistory is refactored to fetch conversations
         />
       )}
 
@@ -240,11 +303,16 @@ export default function ChatClient({
           <ChatConversation
             messages={messages.map((msg) => ({
               ...msg,
-              createdAt: msg.createdAt?.toISOString(),
+              createdAt:
+                typeof msg.createdAt === "string"
+                  ? msg.createdAt
+                  : msg.createdAt?.toISOString(),
             }))}
             isLoading={isLoading}
             status={status}
             reload={reload}
+            setMessages={setMessages}
+            sessionId={sessionId}
           />
 
           <div ref={scrollRef} />

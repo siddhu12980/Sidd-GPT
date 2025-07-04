@@ -34,7 +34,7 @@ import CustomSidePannelTopButton from "@/components/Custom_side_pannel_top_butto
 import MobileSidebar from "@/components/mobile_sidebar";
 import CustomInputArea from "@/components/Custom_input_area";
 import PlusIcon from "@/components/Plus_icon";
-import ChatHistoryItem from "@/components/ChatHistoryItem";
+import ChatHistory from "@/components/ChatHistory";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
@@ -60,6 +60,45 @@ export default function Home() {
       console.error("Chat error:", error);
     },
   });
+
+  // Custom send handler to create conversation on first message
+  const handleSend = async () => {
+    if (!input.trim()) return;
+
+    // If this is the first message, create conversation and redirect
+    if (messages.length === 0) {
+      try {
+        // Create new conversation first
+        const res = await fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: "New Chat" }),
+        });
+        
+        const data = await res.json();
+        if (data._id) {
+          // Save the user message to the new conversation
+          await fetch(`/api/conversations/${data._id}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+              role: "user", 
+              content: input.trim() 
+            }),
+          });
+          
+          // Redirect to the new conversation page
+          router.push(`/chat/${data._id}`);
+          return; // Don't append here, let the ChatClient handle it
+        }
+      } catch (error) {
+        console.error("Failed to create conversation:", error);
+      }
+    }
+
+    // For subsequent messages (shouldn't happen on Home page)
+    append({ role: "user", content: input.trim() });
+  };
 
   console.log("user", user);
   console.log("messages", messages);
@@ -87,24 +126,6 @@ export default function Home() {
   const handleInputActive = () => {
     setIsInputActive(true);
   };
-
-  const chatHistory = [
-    "Mobile Responsiveness and ARIA",
-    "NFT Metadata URI Usage",
-    "Sports Betting Terms Explained",
-    "Response to Job Inquiry",
-    "VM Network Setup Troublesho...",
-    "Kubernetes Configuration Issues",
-    "Pipeline Script Improvement",
-    "Centering Carousel for Hero",
-    "Responsive Width Classes",
-    "Ecommerce Schema Optimiza...",
-    "Formalizing PR Description",
-    "TypeScript Property Error Fix",
-    "Convert code to Hono middle...",
-    "Form Refresh Issue",
-    "Python Exam Preparation",
-  ];
 
   // New chat handler
   const handleNewChat = async () => {
@@ -189,19 +210,7 @@ export default function Home() {
           </div>
 
           {/* Chat History - Scrollable */}
-          <div className="flex-1 flex flex-col min-h-0">
-            <div className="flex-shrink-0  py-2 px-3 ">
-              <h3 className="text-sm font-medium text-gray-400 mb-2">Chats</h3>
-            </div>
-
-            <ScrollArea className="flex-1 px-1">
-              <div className="space-y-1 pb-2">
-                {chatHistory.map((chat, index) => (
-                  <ChatHistoryItem key={index} title={chat} />
-                ))}
-              </div>
-            </ScrollArea>
-          </div>
+          <ChatHistory />
 
           {/* Sidebar Footer - Fixed */}
           <div className="flex-shrink-0 p-2 border-t border-gray-700">
@@ -227,7 +236,7 @@ export default function Home() {
         <MobileSidebar
           setSidebarOpen={setSidebarOpen}
           setCurrentPage={setCurrentPage}
-          chatHistory={chatHistory}
+          chatHistory={[]} // No longer needed as ChatHistory component handles history
         />
       )}
 
@@ -351,7 +360,7 @@ export default function Home() {
               <CustomInputArea
                 input={input}
                 setInput={setInput}
-                append={append}
+                append={handleSend}
                 isLoading={isLoading}
               />
             </>
@@ -394,7 +403,7 @@ export default function Home() {
                 <CustomInputArea
                   input={input}
                   setInput={setInput}
-                  append={append}
+                  append={handleSend}
                   isLoading={isLoading}
                 />
               </div>

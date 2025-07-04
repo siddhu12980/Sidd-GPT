@@ -6,4 +6,7 @@ const messageSchema = new mongoose.Schema({
   content: { type: String, required: true },
 }, { timestamps: true });
 
-export default mongoose.models.Message || mongoose.model('Message', messageSchema);
+// Ensure the model is always registered
+const Message = mongoose.models.Message || mongoose.model('Message', messageSchema);
+
+export default Message;
