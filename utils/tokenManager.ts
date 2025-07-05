@@ -43,7 +43,7 @@ export class TokenManager {
   private model: ModelName;
   private encoding: any;
 
-  constructor(model: ModelName = "gpt-4o") {
+  constructor(model: ModelName = "gpt-4o-mini") {
     this.model = model;
     try {
       // Use gpt-4 encoding for all GPT-4 variants, gpt-3.5-turbo for 3.5

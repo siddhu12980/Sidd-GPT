@@ -56,7 +56,6 @@ export async function POST(req: Request) {
 
     const { messages, userId, data, sessionId } = body;
 
-    
     console.log("Received messages:", messages);
     console.log("Messages count:", messages.length);
     console.log("User ID:", userId);
@@ -137,6 +136,10 @@ export async function POST(req: Request) {
         if (memories) {
           enhancedSystemPrompt = `${memories}\n\nYou are a helpful assistant.`;
         }
+
+        console.log("=== Memories Debug ===");
+        console.log("Memories:", memories);
+        console.log("=== Memories Debug End ===");
       } catch (memoryError) {
         // Continue without memories if retrieval fails
       }
@@ -148,14 +151,10 @@ export async function POST(req: Request) {
     const content = lastMessage?.content || "";
 
     function isImage(url: string) {
-      return (
-        url &&
-        (url.includes("cloudinary.com") ||
-          url.match(/\.(jpg|jpeg|png|gif|webp)$/i))
-      );
+      return url && url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i);
     }
     function isDocument(url: string) {
-      return url && url.match(/\.(pdf|docx?|txt|csv)$/i);
+      return url && url.match(/\.(pdf|docx?|txt|csv|xlsx?|ppt|pptx|zip|rar)$/i);
     }
 
     if (fileUrl) {

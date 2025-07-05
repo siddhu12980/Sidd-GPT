@@ -109,11 +109,14 @@ export default function SignUpPage() {
     if (!isLoaded) return;
 
     try {
+      const origin = window.location.origin;
+
       await signUp.authenticateWithRedirect({
         strategy: provider,
-        redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/",
+        redirectUrl: `${origin}/sso-callback`,
+        redirectUrlComplete: `${origin}/`,
       });
+
     } catch (err: any) {
       setError(err.errors?.[0]?.message || "OAuth sign up failed");
     }
@@ -191,6 +194,10 @@ export default function SignUpPage() {
                   </p>
                 )}
               </div>
+
+              {/* CAPTCHA Widget - Must be inside the form where signUp.create() is called */}
+              <div id="clerk-captcha"></div>
+
               <button
                 type="submit"
                 disabled={isLoading}

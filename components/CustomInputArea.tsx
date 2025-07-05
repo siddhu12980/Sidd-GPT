@@ -84,15 +84,15 @@ export default function CustomInputArea({
     formData.append("file", file);
     try {
       let uploadApi = "/api/upload-file";
-      // Accept images and files (pdf, docx, etc)
-      if (!file.type.startsWith("image/")) {
-        uploadApi = "/api/upload-file";
-      }
+    
       const res = await fetch(uploadApi, {
         method: "POST",
         body: formData,
       });
       const data = await res.json();
+
+      console.log("uploading file", data);
+
       if (data.success) {
         setPendingFile({
           url: data.result.secure_url,

@@ -20,6 +20,9 @@ export default function ChatHistory({
     error,
   } = useConversations();
 
+  // Ensure conversations is always an array
+  const safeConversations = Array.isArray(conversations) ? conversations : [];
+
   const handleConversationClick = (conversationId: string) => {
     router.push(`/chat/${conversationId}`);
   };
@@ -67,12 +70,12 @@ export default function ChatHistory({
 
       <ScrollArea className="flex-1 px-1 hide-scrollbar">
         <div className="space-y-1 pb-2">
-          {conversations.length === 0 ? (
+          {safeConversations.length === 0 ? (
             <p className="text-gray-500 text-sm px-3 py-2">
               No conversations yet
             </p>
           ) : (
-            conversations.map((conversation: any) => (
+            safeConversations.map((conversation: any) => (
               <ChatHistoryItem
                 key={conversation._id}
                 conversation={conversation}

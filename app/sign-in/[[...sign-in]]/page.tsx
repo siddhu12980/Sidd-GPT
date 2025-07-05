@@ -47,10 +47,12 @@ export default function SignInPage() {
     if (!isLoaded) return;
 
     try {
+      const origin = window.location.origin;
+
       await signIn.authenticateWithRedirect({
         strategy: provider,
-        redirectUrl: "/sso-callback",
-        redirectUrlComplete: "/",
+        redirectUrl: `${origin}/sso-callback`,
+        redirectUrlComplete: `${origin}/`,
       });
     } catch (err: any) {
       setError(err.errors?.[0]?.message || "OAuth sign in failed");
@@ -141,6 +143,9 @@ export default function SignInPage() {
           </div>
 
           <div className="flex flex-col gap-3">
+        <div id="clerk-captcha"></div>
+
+
             <button
               onClick={() => handleOAuthSignIn("oauth_google")}
               type="button"
