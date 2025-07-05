@@ -3,13 +3,15 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, Check } from "lucide-react"
+import { useRouter } from "next/navigation"
 
-interface PricingPageProps {
-  onBack: () => void
-}
-
-export default function PricingPage({ onBack }: PricingPageProps) {
+export default function PricingPage() {
   const [selectedTab, setSelectedTab] = useState("Personal")
+  const router = useRouter()
+
+  const handleBack = () => {
+    router.back()
+  }
 
   return (
     <div className="min-h-screen bg-[#212121] text-white">
@@ -20,7 +22,7 @@ export default function PricingPage({ onBack }: PricingPageProps) {
             variant="ghost"
             size="icon"
             className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700"
-            onClick={onBack}
+            onClick={handleBack}
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>

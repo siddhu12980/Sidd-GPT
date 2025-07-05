@@ -1,5 +1,5 @@
 "use client";
-import CustomInputArea from "./Custom_input_area";
+import CustomInputArea from "./CustomInputArea";
 import {
   GraduationCap,
   FileText,

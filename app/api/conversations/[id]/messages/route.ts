@@ -14,9 +14,8 @@ if (!mongoose.connection.readyState) {
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-
   const { userId } = await auth();
   const parmID = (await params).id;
 
@@ -50,24 +49,24 @@ export async function POST(
 
   // Ensure type is explicitly set
   const messageType = type || "text";
-  const messageData = { 
-    session: session._id, 
-    role, 
-    content, 
+  const messageData = {
+    session: session._id,
+    role,
+    content,
     type: messageType,
     fileUrl: fileUrl,
     fileName: fileName,
     fileType: fileType,
   };
   console.log("Message data to save:", messageData);
-  
+
   const message = await Message.create(messageData);
   console.log("Saved message:", message);
-  
+
   // Explicitly select all fields including type to ensure it's returned
-  const savedMessage = await Message.findById(message._id)
+  const savedMessage = await Message.findById(message._id);
   console.log("Retrieved saved message:", savedMessage);
-  
+
   session.messages.push(message._id);
   await session.save();
 
@@ -76,7 +75,7 @@ export async function POST(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
 
@@ -95,18 +94,23 @@ export async function DELETE(
   console.log("After ID:", afterId);
 
   // Find the session with populated messages
-  const session = await Session.findById(id).populate('messages');
+  const session = await Session.findById(id).populate("messages");
   console.log("Session found:", session);
 
   if (!session)
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
 
   // Find the index of the message we want to keep
-  const messageIndex = session.messages.findIndex((msg: any) => msg._id.toString() === afterId);
+  const messageIndex = session.messages.findIndex(
+    (msg: any) => msg._id.toString() === afterId
+  );
   console.log("Message index:", messageIndex);
 
   if (messageIndex === -1)
-    return NextResponse.json({ error: "Message not found in session" }, { status: 404 });
+    return NextResponse.json(
+      { error: "Message not found in session" },
+      { status: 404 }
+    );
 
   // Get all messages after this index
   const messagesToDelete = session.messages.slice(messageIndex + 1);
@@ -118,7 +122,9 @@ export async function DELETE(
 
   if (toDeleteIds.length > 0) {
     // Delete from Message collection
-    const deleteResult = await Message.deleteMany({ _id: { $in: toDeleteIds } });
+    const deleteResult = await Message.deleteMany({
+      _id: { $in: toDeleteIds },
+    });
     console.log("Delete result:", deleteResult);
 
     // Remove from session.messages array

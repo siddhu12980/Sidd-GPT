@@ -1,5 +1,15 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+.cursor*
+.cursor/
+.cursor/rules
+.cursor/rules.txt
+.cursor/rules.md
+.cursor/rules.pdf
+.cursor/rules.docx
+.cursor/rules.doc
+.cursor/rules.txt
+
 # dependencies
 /node_modules
 /.pnp

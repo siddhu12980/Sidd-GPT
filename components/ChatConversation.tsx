@@ -159,7 +159,7 @@ export default function ChatConversation({
           ref={index === messages.length - 1 ? lastMessageRef : undefined}
         >
           {message.role === "assistant" ? (
-            <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-transparent text-white">
+            <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-transparent text-white hide-scrollbar">
               {(() => {
                 const contentType = getContentType(message.content);
                 if (contentType === "image") {
@@ -193,9 +193,9 @@ export default function ChatConversation({
           ) : (
             <div className="flex flex-col items-end group">
               {editingId === (message._id || message.id) ? (
-                <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white">
+                <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white hide-scrollbar">
                   <textarea
-                    className="w-full bg-transparent text-white resize-none border-none outline-none p-0 m-0"
+                    className="w-full bg-transparent text-white resize-none border-none outline-none p-0 m-0 hide-scrollbar"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     onKeyDown={(e) => {
@@ -220,7 +220,7 @@ export default function ChatConversation({
                         <div className="flex flex-col items-end">
                           <img src={message.fileUrl} alt={message.fileName || "uploaded"} className="max-w-xs rounded-lg mb-2" />
                           {(message.content || (message.parts && message.parts[0]?.text)) && (
-                            <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white mt-1">
+                            <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white mt-1 hide-scrollbar">
                               <span>{message.content || message.parts?.[0]?.text}</span>
                             </div>
                           )}
@@ -247,7 +247,7 @@ export default function ChatConversation({
                       );
                     } else {
                       return (
-                        <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white">
+                        <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white hide-scrollbar">
                           <span>{message.content}</span>
                         </div>
                       );

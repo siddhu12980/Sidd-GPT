@@ -1,7 +1,7 @@
 import { BookOpen, Search, Edit } from "lucide-react";
 
 import { Bot, Sparkles } from "lucide-react";
-import CustomSidePannelTopButton from "./Custom_side_pannel_top_button";
+import CustomSidePannelTopButton from "./CustomSidePannelTopButton";
 
 export default function SideBarNavigation({
   handleNewChat,

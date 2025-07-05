@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { createPortal } from "react-dom";
+import "./hide-scrollbar.css";
 
 import {
   PanelLeft,
@@ -25,8 +26,8 @@ import PricingPage from "@/app/pricing/page";
 import { useChat } from "@ai-sdk/react";
 
 import { Logo } from "@/components/logo";
-import MobileSidebar from "@/components/mobile_sidebar";
-import CustomInputArea from "@/components/Custom_input_area";
+import MobileSidebar from "@/components/MobileSideBar";
+import CustomInputArea from "@/components/CustomInputArea";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import ChatConversation from "./ChatConversation";
@@ -391,7 +392,7 @@ export default function ChatClient({
   };
 
   if (currentPage === "pricing") {
-    return <PricingPage onBack={() => setCurrentPage("chat")} />;
+    return <PricingPage  />;
   }
 
   return (
@@ -627,7 +628,7 @@ export default function ChatClient({
           : null}
 
         {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto px-4 pb-28 sm:pb-6">
+        <div className="flex-1 overflow-y-auto px-4 pb-28 sm:pb-6 hide-scrollbar">
           <ChatConversation
             messages={messages.map((msg) => ({
               _id: msg.id,

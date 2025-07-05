@@ -8,7 +8,7 @@ import ChatClient from "../../../components/ChatClient";
 export default async function ChatSessionPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
   // Ensure mongoose is connected
@@ -29,7 +29,7 @@ export default async function ChatSessionPage({
 
   // Find the user in  DB
   const user = await User.findOne({ clerkId: userId });
-  
+
   if (!user) return notFound();
 
   // Find the session and populate messages

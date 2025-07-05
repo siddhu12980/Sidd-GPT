@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import "./hide-scrollbar.css";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -30,10 +31,10 @@ import PricingPage from "@/app/pricing/page";
 import { useChat } from "@ai-sdk/react";
 
 import { Logo } from "@/components/logo";
-import CustomSidePannelTopButton from "@/components/Custom_side_pannel_top_button";
-import MobileSidebar from "@/components/mobile_sidebar";
-import CustomInputArea from "@/components/Custom_input_area";
-import PlusIcon from "@/components/Plus_icon";
+import CustomSidePannelTopButton from "@/components/CustomSidePannelTopButton";
+import MobileSidebar from "@/components/MobileSideBar";
+import CustomInputArea from "@/components/CustomInputArea";
+import PlusIcon from "@/components/PlusIcon";
 import ChatHistory from "@/components/ChatHistory";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
@@ -164,7 +165,7 @@ export default function Home() {
   };
 
   if (currentPage === "pricing") {
-    return <PricingPage onBack={() => setCurrentPage("chat")} />;
+    return <PricingPage  />;
   }
 
   return (
@@ -382,7 +383,7 @@ export default function Home() {
           ) : (
             <div className="w-full max-w-4xl flex flex-col h-full">
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto mb-4">
+              <div className="flex-1 overflow-y-auto mb-4 hide-scrollbar">
                 {messages.map((message, index) => (
                   <div
                     key={index}
