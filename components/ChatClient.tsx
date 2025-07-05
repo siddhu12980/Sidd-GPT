@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 import PricingPage from "@/app/pricing/page";
-import { useChat } from "@ai-sdk/react";
+import { UIMessageExtended, useChat } from "@ai-sdk/react";
 
 import { Logo } from "@/components/logo";
 import MobileSidebar from "@/components/MobileSideBar";
@@ -392,7 +392,7 @@ export default function ChatClient({
   };
 
   if (currentPage === "pricing") {
-    return <PricingPage  />;
+    return <PricingPage />;
   }
 
   return (
@@ -630,7 +630,7 @@ export default function ChatClient({
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto px-4 pb-28 sm:pb-6 hide-scrollbar">
           <ChatConversation
-            messages={messages.map((msg) => ({
+            messages={messages.map((msg: UIMessageExtended) => ({
               _id: msg.id,
               id: msg.id,
               role: msg.role,
