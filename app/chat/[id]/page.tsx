@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import mongoose from "mongoose";
 import Session from "@/models/session";
 import User from "@/models/users";
-import Message from "@/models/message";
 import { auth } from "@clerk/nextjs/server";
 import ChatClient from "../../../components/ChatClient";
 
@@ -11,8 +10,7 @@ export default async function ChatSessionPage({
 }: {
   params: { id: string };
 }) {
-
-    const { id } = await params;
+  const { id } = await params;
   // Ensure mongoose is connected
   if (!mongoose.connection.readyState) {
     await mongoose.connect(process.env.MONGODB_URI!, {
@@ -29,8 +27,9 @@ export default async function ChatSessionPage({
   const { userId } = await auth();
   if (!userId) return notFound();
 
-  // Find the user in your DB
+  // Find the user in  DB
   const user = await User.findOne({ clerkId: userId });
+  
   if (!user) return notFound();
 
   // Find the session and populate messages
@@ -39,13 +38,15 @@ export default async function ChatSessionPage({
     user: user._id,
   }).populate({
     path: "messages",
-    select: "role content createdAt",
+    select: "role content createdAt type fileUrl fileName fileType",
     options: { sort: { createdAt: 1 } },
   });
 
   if (!session) return notFound();
 
   console.log("session", session);
+
+  console.log("session.messages", session.messages);
 
   // Pass sessionId, title, and messages to the client component
   return (
@@ -57,6 +58,10 @@ export default async function ChatSessionPage({
         role: m.role,
         content: m.content,
         createdAt: m.createdAt,
+        type: m.type,
+        fileUrl: m.fileUrl,
+        fileName: m.fileName,
+        fileType: m.fileType,
       }))}
     />
   );

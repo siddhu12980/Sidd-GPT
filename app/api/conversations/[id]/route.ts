@@ -29,7 +29,7 @@ export async function GET(
     user: user._id,
   }).populate({
     path: "messages",
-    select: "role content createdAt",
+    select: "role content createdAt type fileName fileType",
     options: { sort: { createdAt: 1 } },
   });
   if (!session)
@@ -37,6 +37,11 @@ export async function GET(
       { error: "Conversation not found" },
       { status: 404 }
     );
+
+  console.log("=== Conversation Loading Debug ===");
+  console.log("Session messages count:", session.messages.length);
+  console.log("First message:", session.messages[0]);
+  console.log("All messages:", session.messages);
 
   return NextResponse.json(session);
 }

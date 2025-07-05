@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
 import { Button } from "./ui/button";
 import { Bot, Settings } from "lucide-react";
@@ -5,15 +7,50 @@ import { Search, Sparkles } from "lucide-react";
 import { BookOpen, Edit } from "lucide-react";
 import { PanelLeft } from "lucide-react";
 
+interface Conversation {
+  _id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function MobileSidebar({
   setSidebarOpen,
   setCurrentPage,
-  chatHistory,
 }: {
   setSidebarOpen: (open: boolean) => void;
   setCurrentPage: (page: string) => void;
-  chatHistory: string[];
 }) {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    fetchConversations();
+  }, []);
+
+  const fetchConversations = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/conversations");
+      if (!response.ok) {
+        throw new Error("Failed to fetch conversations");
+      }
+      const data = await response.json();
+      setConversations(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch conversations");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConversationClick = (conversationId: string) => {
+    setSidebarOpen(false);
+    router.push(`/chat/${conversationId}`);
+  };
+
   return (
     <>
       <div
@@ -84,15 +121,26 @@ export default function MobileSidebar({
           </div>
           <ScrollArea className="flex-1 px-2">
             <div className="space-y-1 pb-4">
-              {chatHistory.map((chat, index) => (
-                <Button
-                  key={index}
-                  variant="ghost"
-                  className="w-full justify-start text-left text-gray-300 hover:text-white hover:bg-gray-700 h-auto py-2 px-3 rounded-lg"
-                >
-                  <span className="truncate text-sm font-normal">{chat}</span>
-                </Button>
-              ))}
+              {loading ? (
+                [...Array(5)].map((_, index) => (
+                  <div key={index} className="h-10 bg-gray-700 rounded-lg animate-pulse" />
+                ))
+              ) : error ? (
+                <p className="text-red-400 text-sm px-3 py-2">{error}</p>
+              ) : conversations.length === 0 ? (
+                <p className="text-gray-500 text-sm px-3 py-2">No conversations yet</p>
+              ) : (
+                conversations.map((conversation) => (
+                  <Button
+                    key={conversation._id}
+                    variant="ghost"
+                    className="w-full justify-start text-left text-gray-300 hover:text-white hover:bg-gray-700 h-auto py-2 px-3 rounded-lg"
+                    onClick={() => handleConversationClick(conversation._id)}
+                  >
+                    <span className="truncate text-sm font-normal">{conversation.title}</span>
+                  </Button>
+                ))
+              )}
             </div>
           </ScrollArea>
         </div>

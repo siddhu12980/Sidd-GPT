@@ -2,46 +2,22 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ChatHistoryItem from "./ChatHistoryItem";
 import { ScrollArea } from "./ui/scroll-area";
-
-interface Conversation {
-  _id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import { useConversations } from "@/hooks/useConversations";
+import { Conversation } from "@/lib/api";
 
 export default function ChatHistory({
   currentSessionId,
-  onRefresh,
 }: {
   currentSessionId?: string;
-  onRefresh?: () => void;
 }) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  const fetchConversations = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch("/api/conversations");
-      if (!response.ok) {
-        throw new Error("Failed to fetch conversations");
-      }
-      const data = await response.json();
-      setConversations(data);
-      onRefresh?.(); // Call parent refresh function if provided
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch conversations");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Use TanStack Query hook instead of manual fetch
+  const {
+    data: conversations = [],
+    isLoading: loading,
+    error,
+  } = useConversations();
 
   const handleConversationClick = (conversationId: string) => {
     router.push(`/chat/${conversationId}`);
@@ -56,7 +32,10 @@ export default function ChatHistory({
         <ScrollArea className="flex-1 px-1">
           <div className="space-y-1 pb-2">
             {[...Array(5)].map((_, index) => (
-              <div key={index} className="h-10 bg-gray-700 rounded-lg animate-pulse" />
+              <div
+                key={index}
+                className="h-10 bg-gray-700 rounded-lg animate-pulse"
+              />
             ))}
           </div>
         </ScrollArea>
@@ -71,7 +50,9 @@ export default function ChatHistory({
           <h3 className="text-sm font-medium text-gray-400 mb-2">Chats</h3>
         </div>
         <div className="flex-1 px-1 flex items-center justify-center">
-          <p className="text-red-400 text-sm">{error}</p>
+          <p className="text-red-400 text-sm">
+            {error.message || "Failed to load conversations"}
+          </p>
         </div>
       </div>
     );
@@ -86,9 +67,11 @@ export default function ChatHistory({
       <ScrollArea className="flex-1 px-1">
         <div className="space-y-1 pb-2">
           {conversations.length === 0 ? (
-            <p className="text-gray-500 text-sm px-3 py-2">No conversations yet</p>
+            <p className="text-gray-500 text-sm px-3 py-2">
+              No conversations yet
+            </p>
           ) : (
-            conversations.map((conversation) => (
+            conversations.map((conversation: any) => (
               <ChatHistoryItem
                 key={conversation._id}
                 conversation={conversation}

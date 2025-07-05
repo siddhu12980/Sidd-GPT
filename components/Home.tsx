@@ -38,6 +38,9 @@ import ChatHistory from "@/components/ChatHistory";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
+// Import the new hooks
+import { useCreateConversation } from "@/hooks/useConversations";
+
 export default function Home() {
   const router = useRouter();
 
@@ -47,13 +50,17 @@ export default function Home() {
 
   const { user } = useUser();
 
+  // Initialize TanStack Query hooks
+  const createConversationMutation = useCreateConversation();
+
   console.log("user", user);
-  
+
   // Use Vercel AI SDK's useChat hook
   const { messages, input, setInput, append, isLoading } = useChat({
     api: "/api/chat",
     body: {
       userId: user?.id || "anonymous", // Pass user ID for Mem0
+      sessionId: undefined, // No session on home page - will use user ID as org_id
     },
     onResponse: (response) => {
       console.log("response", response);
@@ -73,25 +80,21 @@ export default function Home() {
     // If this is the first message, create conversation and redirect
     if (messages.length === 0) {
       try {
-        // Create new conversation first
-        const res = await fetch("/api/conversations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "New Chat" }),
+        // Create new conversation using the new hook
+        const data = await createConversationMutation.mutateAsync({
+          title: "New Chat",
         });
-        
-        const data = await res.json();
         if (data._id) {
           // Save the user message to the new conversation
           await fetch(`/api/conversations/${data._id}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              role: "user", 
-              content: input.trim() 
+            body: JSON.stringify({
+              role: "user",
+              content: input.trim(),
             }),
           });
-          
+
           // Redirect to the new conversation page
           router.push(`/chat/${data._id}`);
           return; // Don't append here, let the ChatClient handle it
@@ -103,6 +106,18 @@ export default function Home() {
 
     // For subsequent messages (shouldn't happen on Home page)
     append({ role: "user", content: input.trim() });
+  };
+
+  // Wrapper function for CustomInputArea compatibility
+  const handleMessage = (message: {
+    content: string;
+    role: "user";
+    type?: string;
+  }) => {
+    // For Home page, we only handle text messages and create new conversations
+    if (message.type === "text" || !message.type) {
+      handleSend();
+    }
   };
 
   console.log("user", user);
@@ -132,19 +147,15 @@ export default function Home() {
     setIsInputActive(true);
   };
 
-  // New chat handler
+  // New chat handler using the new hook
   const handleNewChat = async () => {
     try {
-      const res = await fetch("/api/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "New Chat" }),
+      const data = await createConversationMutation.mutateAsync({
+        title: "New Chat",
       });
-      const data = await res.json();
       if (data._id) {
         router.push(`/chat/${data._id}`);
       } else {
-        // Optionally show error to user
         alert("Failed to create new chat session.");
       }
     } catch (err) {
@@ -241,7 +252,6 @@ export default function Home() {
         <MobileSidebar
           setSidebarOpen={setSidebarOpen}
           setCurrentPage={setCurrentPage}
-          chatHistory={[]} // No longer needed as ChatHistory component handles history
         />
       )}
 
@@ -365,7 +375,7 @@ export default function Home() {
               <CustomInputArea
                 input={input}
                 setInput={setInput}
-                append={handleSend}
+                handleSendButtonClick={handleSend}
                 isLoading={isLoading}
               />
             </>
@@ -408,7 +418,7 @@ export default function Home() {
                 <CustomInputArea
                   input={input}
                   setInput={setInput}
-                  append={handleSend}
+                  handleSendButtonClick={handleMessage}
                   isLoading={isLoading}
                 />
               </div>
