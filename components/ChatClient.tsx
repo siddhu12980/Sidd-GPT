@@ -23,7 +23,8 @@ import {
 } from "lucide-react";
 
 import PricingPage from "@/app/pricing/page";
-import { UIMessageExtended, useChat } from "@ai-sdk/react";
+import { useChat } from "@ai-sdk/react";
+import { UIMessageExtended } from "@ai-sdk/react";
 
 import { Logo } from "@/components/logo";
 import MobileSidebar from "@/components/MobileSideBar";

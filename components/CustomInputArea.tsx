@@ -83,7 +83,7 @@ export default function CustomInputArea({
     const formData = new FormData();
     formData.append("file", file);
     try {
-      let uploadApi = "/api/upload-image";
+      let uploadApi = "/api/upload-file";
       // Accept images and files (pdf, docx, etc)
       if (!file.type.startsWith("image/")) {
         uploadApi = "/api/upload-file";
