@@ -348,12 +348,16 @@ export default function ChatClient({
 
     console.log("Saved user message with real _id:", savedUserMessage);
 
+    
+
     // Append the basic message to useChat state
     append({
       id: savedUserMessage._id,
       role: "user",
       content: message.content,
+    
       ...(message.fileUrl && { data: message.fileUrl }), // Include data for backend processing
+      
     } as any);
 
     // Set up pending update for extended properties if needed
