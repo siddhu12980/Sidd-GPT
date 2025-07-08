@@ -1,31 +1,69 @@
 import { streamText, UIMessage } from "ai";
-import {
-  createMem0,
-  retrieveMemories,
-  addMemories,
-} from "@mem0/vercel-ai-provider";
+import { openai } from "@ai-sdk/openai";
 import { TokenManager, ModelName } from "@/lib/tokenManager";
 import { chatRateLimiter } from "@/middleware/rateLimiter";
+import { mem0Service } from "@/lib/mem0Service";
+import { auth } from "@clerk/nextjs/server";
+import mongoose from "mongoose";
 
-// Initialize Mem0 with proper configuration
-const mem0 = createMem0({
-  provider: "openai",
-  mem0ApiKey: process.env.MEM0_API_KEY,
-  apiKey: process.env.OPENAI_API_KEY,
-  config: {
-    compatibility: "strict",
-  },
-  mem0Config: {},
+// Connect to MongoDB if not already connected
+if (!mongoose.connection.readyState) {
+  mongoose.connect(process.env.MONGODB_URI!, {
+    dbName: process.env.MONGODB_DB,
+  });
+}
+
+// Usage schema (same as in usage/route.ts)
+const usageSchema = new mongoose.Schema({
+  userId: { type: String, required: true },
+  date: { type: String, required: true },
+  tokensUsed: { type: Number, default: 0 },
+  requestsMade: { type: Number, default: 0 },
+  modelUsed: { type: String, required: true },
+  cost: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now }
 });
+
+usageSchema.index({ userId: 1, date: 1 });
+
+const Usage = mongoose.models.Usage || mongoose.model('Usage', usageSchema);
+
+// Helper function to track usage directly in database
+async function trackUsage(
+  userId: string, 
+  tokensUsed: number, 
+  modelUsed: string, 
+  cost: number
+) {
+  try {
+    const date = new Date().toISOString().split('T')[0];
+    
+    const existingUsage = await Usage.findOne({ userId, date, modelUsed });
+    
+    if (existingUsage) {
+      existingUsage.tokensUsed += tokensUsed;
+      existingUsage.requestsMade += 1;
+      existingUsage.cost += cost;
+      await existingUsage.save();
+    } else {
+      await Usage.create({
+        userId,
+        date,
+        tokensUsed,
+        requestsMade: 1,
+        modelUsed,
+        cost
+      });
+    }
+    
+    console.log(`✅ Usage tracked: ${tokensUsed} tokens, $${cost.toFixed(6)} for user ${userId}`);
+  } catch (error) {
+    console.error('Error tracking usage:', error);
+  }
+}
 
 export async function POST(req: Request) {
   try {
-    console.log("=== API Route Debug Start ===");
-    console.log("=== API Route Debug Start ===");
-    console.log("=== API Route Debug Start ===");
-    console.log("=== API Route Debug Start ===");
-    console.log("=== API Route Debug Start ===");
-
     const rateLimitResult = await chatRateLimiter(req as any);
     if (rateLimitResult.status !== 200) {
       return rateLimitResult;
@@ -33,12 +71,6 @@ export async function POST(req: Request) {
 
     const openaiApiKey = process.env.OPENAI_API_KEY;
     const mem0ApiKey = process.env.MEM0_API_KEY;
-
-    console.log("=== API Keys Debug ===");
-    console.log("OpenAI API Key exists:", !!openaiApiKey);
-    console.log("Mem0 API Key exists:", !!mem0ApiKey);
-    console.log("Mem0 API Key length:", mem0ApiKey?.length || 0);
-    console.log("=== API Keys Debug End ===");
 
     if (!openaiApiKey) {
       throw new Error("OpenAI API key is not configured");
@@ -49,29 +81,15 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-
-    console.log("=== API Route Debug Start ===");
-    console.log("Received body:", body);
-    console.log("=== API Route Debug End ===");
-
     const { messages, userId, data, sessionId } = body;
 
-    console.log("Received messages:", messages);
-    console.log("Messages count:", messages.length);
-    console.log("User ID:", userId);
-    console.log("Session ID:", sessionId);
-
     if (!messages || !Array.isArray(messages)) {
-      console.log("Invalid messages format");
       return new Response("Invalid messages format", { status: 400 });
     }
 
-    const model = "gpt-4o" as ModelName;
+    const model = "gpt-4o-mini" as ModelName; // Using gpt-4o-mini as shown in the streamText calls
+    
     const tokenManager = new TokenManager(model);
-
-    console.log("=== Token Management Debug ===");
-    console.log("Model:", model);
-    console.log("Original messages count:", messages.length);
 
     const normalizedMessages = messages.map((msg: any) => ({
       role: msg.role,
@@ -82,66 +100,57 @@ export async function POST(req: Request) {
     }));
 
     const tokenCheck = tokenManager.checkTokenLimits(normalizedMessages);
-    console.log("Token check result:", {
-      withinLimits: tokenCheck.withinLimits,
-      inputTokens: tokenCheck.inputTokens,
-      maxInputTokens: tokenCheck.maxInputTokens,
-      estimatedOutputTokens: tokenCheck.estimatedOutputTokens,
-      totalEstimated: tokenCheck.totalEstimated,
-      utilizationPercentage:
-        ((tokenCheck.totalEstimated / tokenCheck.maxInputTokens) * 100).toFixed(
-          2
-        ) + "%",
-    });
 
     if (!tokenCheck.withinLimits) {
-      console.warn(
-        "Input exceeds token limits. Trimming messages from:",
-        tokenCheck.inputTokens,
-        "tokens"
-      );
       const trimmed = tokenManager.trimMessagesToFit(normalizedMessages);
-      console.log("Messages after trimming:", trimmed.length);
-      console.log(
-        "Trimmed messages:",
-        trimmed.map((m) => ({ role: m.role, contentLength: m.content.length }))
-      );
       messages.splice(0, messages.length, ...trimmed);
-    } else {
-      console.log("Messages within token limits - no trimming needed");
     }
 
+    // Calculate input tokens for usage tracking
+    const inputTokens = tokenManager.countMessageTokens(normalizedMessages);
+    console.log("=== Token Management Debug ===");
+    console.log("Model:", model);
+    console.log("Input tokens:", inputTokens);
+    console.log("Original messages count:", messages.length);
+    console.log("Token check result:", tokenCheck);
     console.log("=== End Token Management Debug ===");
 
     // Use provided userId or fallback to a default
     const currentUserId = userId || "default-user";
-
-    // Use sessionId as org_id for memory isolation, fallback to user ID if no session
-    // const orgId = sessionId || currentUserId;
 
     // Get the latest user message for memory retrieval
     const latestUserMessage = messages
       .filter((msg) => msg.role === "user")
       .pop();
 
-    let enhancedSystemPrompt = "You are a helpful assistant.";
+    console.log("latestUserMessage", latestUserMessage);
+
+    let enhancedSystemPrompt = `
+      
+      You are a highly capable and trustworthy AI assistant. Use the memory context, including prior user conversations, to maintain continuity, understand intent, and provide relevant, personalized assistance.
+      
+      Your role is to deliver accurate, thoughtful, and context-aware responses across a range of tasks—technical, creative, or general. Ask clarifying questions when needed. If unsure, admit uncertainty rather than guessing.
+      
+      You remain helpful, respectful, and professional. Avoid unsafe or misleading outputs. Always prioritize solving the user's problem effectively based on their goals and the evolving context of the conversation.
+      `;
 
     // Retrieve relevant memories if we have a user message
     if (latestUserMessage && typeof latestUserMessage.content === "string") {
       try {
-        const memories = await retrieveMemories(latestUserMessage.content, {
-          user_id: currentUserId,
-          // org_id: orgId,
-        });
-        if (memories) {
-          enhancedSystemPrompt = `${memories}\n\nYou are a helpful assistant.`;
-        }
+        const memories = await mem0Service.getRelevantMemories(
+          currentUserId,
+          latestUserMessage.content,
+          5
+        );
 
-        console.log("=== Memories Debug ===");
-        console.log("Memories:", memories);
-        console.log("=== Memories Debug End ===");
+        console.log("Revelant Memories", memories);
+
+        if (memories && memories.length > 0) {
+          const memoryContext = memories.join("\n\n");
+          enhancedSystemPrompt = `${memoryContext}\n\n  ${enhancedSystemPrompt}`;
+        }
       } catch (memoryError) {
-        // Continue without memories if retrieval fails
+        console.log("Memory Failed", memoryError);
       }
     }
 
@@ -158,19 +167,10 @@ export async function POST(req: Request) {
     }
 
     if (fileUrl) {
-      console.log("=== File URL Debug ===");
-      console.log("File URL:", fileUrl);
-      console.log("=== File URL Debug End ===");
       let multimodalContent = [];
       if (content) {
-        console.log("=== Content Debug ===");
-        console.log("Content:", content);
-        console.log("=== Content Debug End ===");
         multimodalContent.push({ type: "text", text: content });
       } else {
-        console.log("=== No Content Debug ===");
-        console.log("No Content:", content);
-        console.log("=== No Content Debug End ===");
         multimodalContent.push({
           type: "text",
           text: isImage(fileUrl)
@@ -184,15 +184,9 @@ export async function POST(req: Request) {
         multimodalContent.push({ type: "file", file: new URL(fileUrl) });
       }
       const initialMessages = messages.slice(0, -1);
-      // Log the query and data being acted upon
-      console.log("=== User Query Debug ===");
-      console.log("User Query (text):", content);
-      console.log("File URL:", fileUrl);
-      console.log("Multimodal Content:", multimodalContent);
-      console.log("Initial Messages:", initialMessages);
-      // End log
-      const result = streamText({
-        model: mem0("gpt-4o-mini", { user_id: currentUserId }),
+
+      const result = await streamText({
+        model: openai("gpt-4o-mini"),
         system: enhancedSystemPrompt,
         messages: [
           ...initialMessages,
@@ -202,6 +196,28 @@ export async function POST(req: Request) {
           },
         ],
       });
+
+      // Track usage for multimodal request
+      const finalInputTokens = tokenManager.countMessageTokens([
+        ...initialMessages,
+        { role: "user", content: JSON.stringify(multimodalContent) }
+      ]);
+      
+      // For streaming responses, we'll estimate output tokens and track when response finishes
+      const estimatedOutputTokens = 500; // Reasonable estimate for responses
+      const totalTokens = finalInputTokens + estimatedOutputTokens;
+      const cost = tokenManager.calculateCost(finalInputTokens, estimatedOutputTokens);
+      
+      console.log("=== Usage Tracking (Multimodal) ===");
+      console.log("Input tokens:", finalInputTokens);
+      console.log("Estimated output tokens:", estimatedOutputTokens);
+      console.log("Total tokens:", totalTokens);
+      console.log("Cost:", cost);
+      console.log("=== End Usage Tracking ===");
+
+      // Track usage asynchronously
+      trackUsage(currentUserId, totalTokens, model, cost);
+
       return result.toDataStreamResponse();
     }
 
@@ -225,75 +241,46 @@ export async function POST(req: Request) {
             { type: "text", text: currentMessage.content },
             { type: "image", image: currentMessage.content },
           ],
-        } as any, // Cast to any to satisfy the AI SDK type
+        } as any,
       ];
     }
 
-    // Log the query and data for non-multimodal
-    if (!fileUrl) {
-      const lastUserMsg = messages.filter((m) => m.role === "user").pop();
-      console.log("=== User Query Debug ===");
-      console.log("User Query (text):", lastUserMsg?.content);
-      console.log("All Messages:", messages);
-    }
-
-    const result = streamText({
-      model: mem0("gpt-4o-mini", { user_id: currentUserId }),
+    const result = await streamText({
+      model: openai("gpt-4o-mini"),
       system: enhancedSystemPrompt,
       messages: aiMessages,
     });
 
-    console.log("StreamText result created successfully");
-    console.log("Result type:", typeof result);
-    console.log("Result methods:", Object.getOwnPropertyNames(result));
+    // For standard text responses, track usage
+    const finalInputTokens = tokenManager.countMessageTokens(aiMessages);
+    const estimatedOutputTokens = 500; // Reasonable estimate for responses
+    const totalTokens = finalInputTokens + estimatedOutputTokens;
+    const cost = tokenManager.calculateCost(finalInputTokens, estimatedOutputTokens);
+    
+    console.log("=== Usage Tracking (Standard) ===");
+    console.log("Input tokens:", finalInputTokens);
+    console.log("Estimated output tokens:", estimatedOutputTokens);
+    console.log("Total tokens:", totalTokens);
+    console.log("Cost:", cost);
+    console.log("=== End Usage Tracking ===");
+
+    // Track usage asynchronously
+    trackUsage(currentUserId, totalTokens, model, cost);
 
     const response = result.toDataStreamResponse();
-    console.log("DataStreamResponse created successfully");
-    console.log("Response status:", response.status);
-    console.log(
-      "Response headers:",
-      Object.fromEntries(response.headers.entries())
-    );
 
     // Store important information in memory for future reference
     if (latestUserMessage && typeof latestUserMessage.content === "string") {
       try {
-        // Add the user message to memory for future context
-        await addMemories(
-          [
-            {
-              role: "user",
-              content: [{ type: "text", text: latestUserMessage.content }],
-            },
-          ],
-          {
-            user_id: currentUserId,
-            // org_id: orgId,
-          }
-        );
-        console.log("User message stored in memory");
+        await mem0Service.addMemory(currentUserId, [latestUserMessage]);
       } catch (memoryError) {
-        console.warn("Failed to store message in memory:", memoryError);
+        // Continue without storing memory if it fails
       }
     }
 
-    console.log("=== API Route Debug End ===");
     return response;
   } catch (error) {
-    console.error("=== API Route Error ===");
     const errorObj = error as Error;
-    console.error("Error type:", errorObj.constructor.name);
-    console.error("Error message:", errorObj.message);
-    console.error("Error stack:", errorObj.stack);
-    console.error("Full error object:", error);
-
-    // Check if it's an API key error
-    if (
-      errorObj.message?.includes("API key") ||
-      errorObj.message?.includes("authentication")
-    ) {
-      console.error("This appears to be an API key/authentication error");
-    }
 
     return new Response(
       JSON.stringify({
@@ -312,8 +299,5 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  console.log("=== GET Request Debug ===");
-  console.log("OpenAI API Key exists:", !!process.env.OPENAI_API_KEY);
-  console.log("Mem0 API Key exists:", !!process.env.MEM0_API_KEY);
   return new Response("Chat API with Mem0 integration is running!");
 }

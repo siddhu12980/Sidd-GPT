@@ -6,7 +6,6 @@ export async function POST(req: NextRequest) {
     const { messages, model = "gpt-4o" } = await req.json();
 
     const tokenManager = new TokenManager(model as ModelName);
-    
     const normalizedMessages = messages.map((msg: any) => ({
       role: msg.role,
       content: typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content),

@@ -6,15 +6,26 @@ import { Edit, Trash2, Brain } from "lucide-react";
 import ChatActionBar from "./ChatActionBar";
 import "./hide-scrollbar.css";
 import { Markdown } from "./Format";
+import { ChatRequestOptions } from "ai";
 
 export default function ChatConversation({
+  handleMessage,
   messages,
   isLoading,
   status,
   reload,
   setMessages,
   sessionId,
+  append,
 }: {
+  handleMessage: (msg: {
+    content: string;
+    role: "user";
+    type?: string;
+    fileUrl?: string;
+    fileName?: string;
+    fileType?: string;
+  }) => void;
   messages: {
     _id?: string;
     id?: string;
@@ -29,9 +40,17 @@ export default function ChatConversation({
   }[];
   isLoading: boolean;
   status?: string;
-  reload?: () => void;
+  reload?: (
+    chatRequestOptions?: ChatRequestOptions
+  ) => Promise<string | null | undefined>;
   setMessages?: (msgs: any[]) => void;
   sessionId?: string;
+  append?: (message: {
+    role: "user";
+    content: string;
+    data?: string;
+    id?: string;
+  }) => void;
 }) {
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -46,26 +65,33 @@ export default function ChatConversation({
     }
   }, [messages.length]);
 
+  console.log("messages in chat conversation", messages);
+
   const handleEdit = (msg: any) => {
+    console.log("=== handleEdit Debug ===");
+    console.log("Message object:", msg);
+    console.log("Message _id:", msg._id);
+    console.log("Message id:", msg.id);
+    console.log("Message content:", msg.content);
     setEditingId(msg._id || msg.id);
     setEditValue(msg.content);
   };
 
   const handleEditSave = async (msg: any, idx: number) => {
     console.log("=== handleEditSave Debug ===");
-    console.log("Message object:", msg);
+    console.log("Original message object:", msg);
     console.log("Message _id:", msg._id);
     console.log("Message id:", msg.id);
     console.log("Edit value:", editValue);
     console.log("Session ID:", sessionId);
+    console.log("Message index:", idx);
 
-    const newMessages = [
-      ...messages.slice(0, idx),
-      { ...msg, content: editValue },
-    ];
-    setEditingId(null);
-    setEditValue("");
-    setMessages?.(newMessages);
+    console.log("Message properties to preserve:", {
+      type: msg.type,
+      fileUrl: msg.fileUrl,
+      fileName: msg.fileName,
+      fileType: msg.fileType,
+    });
 
     const messageId = msg._id || msg.id;
 
@@ -74,64 +100,166 @@ export default function ChatConversation({
       return;
     }
 
-    // PATCH edited message
-    await fetch(`/api/conversations/${sessionId}/messages/${messageId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: editValue }),
-    });
-    
-    // Delete all messages after the edited message
-    await fetch(`/api/conversations/${sessionId}/messages?after=${messageId}`, {
-      method: "DELETE",
-    });
+    // Create updated message preserving ALL original properties except content
+    const updatedMessage = {
+      ...msg, // Preserve all original properties
+      content: editValue, // Only update content
+    };
 
-    // Reload to get the new AI response
-    reload?.();
+    console.log("Updated message object:", updatedMessage);
+
+    // First, update the UI immediately with the edited message
+    // Keep messages up to and including the edited message, remove all after
+    const newMessages = [
+      ...messages.slice(0, idx), // All messages before the edited one
+      updatedMessage, // The edited message with new content
+      // Remove all messages after the edited one
+    ];
+
+    console.log("New messages array:", newMessages);
+    setEditingId(null);
+    setEditValue("");
+    setMessages?.(newMessages);
+
+    // PATCH edited message - only send content to preserve other fields
+    try {
+      const patchResponse = await fetch(
+        `/api/conversations/${sessionId}/messages/${messageId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: editValue }),
+        }
+      );
+
+      if (!patchResponse.ok) {
+        console.error("Failed to update message:", patchResponse.status);
+        const errorText = await patchResponse.text();
+        console.error("Error details:", errorText);
+        return;
+      }
+
+      const updatedMessageFromServer = await patchResponse.json();
+      console.log("Message updated on server:", updatedMessageFromServer);
+    } catch (error) {
+      console.error("Error updating message:", error);
+      return;
+    }
+
+    // Delete all messages after the edited message (but keep the edited message)
+    try {
+      const deleteResponse = await fetch(
+        `/api/conversations/${sessionId}/messages?after=${messageId}&includeTarget=false`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!deleteResponse.ok) {
+        console.error(
+          "Failed to delete subsequent messages:",
+          deleteResponse.status
+        );
+        return;
+      }
+
+      const deleteResult = await deleteResponse.json();
+      console.log(
+        "Successfully deleted messages after edited message:",
+        deleteResult
+      );
+    } catch (error) {
+      console.error("Error deleting subsequent messages:", error);
+      return;
+    }
+
+    // Trigger AI response using reload() to avoid creating duplicate messages
+    // reload() works on the current message state and doesn't add new messages
+    if (reload) {
+      console.log("Triggering AI response with reload()");
+      try {
+        // For multimodal messages, pass the file data to reload()
+        if (msg.fileUrl) {
+          await reload({
+            data: msg.fileUrl, // Pass the file URL as data
+            body: {
+              // Any additional multimodal context if needed
+              fileType: msg.fileType,
+              fileName: msg.fileName,
+            },
+          });
+        } else {
+          // For text-only messages
+          await reload();
+        }
+      } catch (error) {
+        console.error("Error triggering AI response:", error);
+      }
+    } else {
+      console.log("No reload function available");
+    }
   };
 
   const handleDelete = async (msg: any, idx: number) => {
-    // Remove this and all after
+    const messageId = msg._id || msg.id;
+
+    console.log("=== handleDelete Debug ===");
+    console.log("Deleting message", messageId);
+    console.log("Message index:", idx);
+
+    // Remove this message and all after it
     const newMessages = messages.slice(0, idx);
+    console.log("New messages after delete:", newMessages);
     setMessages?.(newMessages);
 
-    const messageId = msg._id;
+    // Delete this message and all messages after it from the server (includeTarget=true)
+    try {
+      const deleteResponse = await fetch(
+        `/api/conversations/${sessionId}/messages?after=${messageId}&includeTarget=true`,
+        {
+          method: "DELETE",
+        }
+      );
 
-    console.log("Deleting message", messageId);
+      if (!deleteResponse.ok) {
+        console.error("Failed to delete messages:", deleteResponse.status);
+        return;
+      }
 
-    // Delete all messages after the deleted message
-    await fetch(`/api/conversations/${sessionId}/messages?after=${messageId}`, {
-      method: "DELETE",
-    });
-
-    // Reload to get the updated conversation
-    reload?.();
+      const deleteResult = await deleteResponse.json();
+      console.log("Successfully deleted messages from server:", deleteResult);
+    } catch (error) {
+      console.error("Error deleting messages:", error);
+      return;
+    }
   };
 
   // Helper function to determine if content is a URL and what type
   const getContentType = (content: string) => {
-    if (!content) return 'text';
-    
+    if (!content) return "text";
+
     // Check if it's a URL
     try {
       const url = new URL(content);
       const pathname = url.pathname.toLowerCase();
-      
+
       // Check for image extensions
       if (pathname.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/)) {
-        return 'image';
+        return "image";
       }
-      
+
       // Check for file extensions
-      if (pathname.match(/\.(pdf|doc|docx|txt|csv|xlsx|xls|ppt|pptx|zip|rar)$/)) {
-        return 'file';
+      if (
+        pathname.match(/\.(pdf|doc|docx|txt|csv|xlsx|xls|ppt|pptx|zip|rar)$/)
+      ) {
+        return "file";
       }
-      
+
       // If it's a URL but not a recognized file type, treat as text
-      return 'text';
+      return "text";
     } catch {
       // Not a valid URL, treat as text
-      return 'text';
+      return "text";
     }
   };
 
@@ -140,9 +268,9 @@ export default function ChatConversation({
     try {
       const url = new URL(content);
       const pathname = url.pathname;
-      return pathname.split('/').pop() || 'Download file';
+      return pathname.split("/").pop() || "Download file";
     } catch {
-      return 'Download file';
+      return "Download file";
     }
   };
 
@@ -163,10 +291,21 @@ export default function ChatConversation({
               {(() => {
                 const contentType = getContentType(message.content);
                 if (contentType === "image") {
-                  return <img src={message.content} alt="uploaded" className="max-w-xs rounded-lg" />;
+                  return (
+                    <img
+                      src={message.content}
+                      alt="uploaded"
+                      className="max-w-xs rounded-lg"
+                    />
+                  );
                 } else if (contentType === "file") {
                   return (
-                    <a href={message.content} target="_blank" rel="noopener" className="underline">
+                    <a
+                      href={message.content}
+                      target="_blank"
+                      rel="noopener"
+                      className="underline"
+                    >
                       {getFileName(message.content)}
                     </a>
                   );
@@ -177,9 +316,7 @@ export default function ChatConversation({
               <ChatActionBar
                 content={message.content}
                 onRegenerate={
-                  status === "ready" || status === "error"
-                    ? reload
-                    : undefined
+                  status === "ready" || status === "error" ? reload : undefined
                 }
               />
               {/* Memory indicator - show on first AI message or when context is used */}
@@ -199,15 +336,15 @@ export default function ChatConversation({
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
+                      if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         handleEditSave(message, index);
-                      } else if (e.key === 'Escape') {
+                      } else if (e.key === "Escape") {
                         setEditingId(null);
                         setEditValue("");
                       }
                     }}
-                    rows={Math.max(1, editValue.split('\n').length)}
+                    rows={Math.max(1, editValue.split("\n").length)}
                     autoFocus
                   />
                 </div>
@@ -218,30 +355,56 @@ export default function ChatConversation({
                     if (message.type === "image" && message.fileUrl) {
                       return (
                         <div className="flex flex-col items-end">
-                          <img src={message.fileUrl} alt={message.fileName || "uploaded"} className="max-w-xs rounded-lg mb-2" />
-                          {(message.content || (message.parts && message.parts[0]?.text)) && (
+                          <img
+                            src={message.fileUrl}
+                            alt={message.fileName || "uploaded"}
+                            className="max-w-xs rounded-lg mb-2"
+                          />
+                          {(message.content ||
+                            (message.parts && message.parts[0]?.text)) && (
                             <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white mt-1 hide-scrollbar">
-                              <span>{message.content || message.parts?.[0]?.text}</span>
+                              <span>
+                                {message.content || message.parts?.[0]?.text}
+                              </span>
                             </div>
                           )}
                         </div>
                       );
                     }
                     // If it's a temporary image message (type is image but no fileUrl), show only the image from content
-                    if (message.type === "image" && !message.fileUrl && message.content) {
+                    if (
+                      message.type === "image" &&
+                      !message.fileUrl &&
+                      message.content
+                    ) {
                       return (
                         <div className="flex flex-col items-end">
-                          <img src={message.content} alt="uploaded" className="max-w-xs rounded-lg" />
+                          <img
+                            src={message.content}
+                            alt="uploaded"
+                            className="max-w-xs rounded-lg"
+                          />
                         </div>
                       );
                     }
                     // Fallback to your existing logic
                     const contentType = getContentType(message.content);
                     if (contentType === "image") {
-                      return <img src={message.content} alt="uploaded" className="max-w-xs rounded-lg" />;
+                      return (
+                        <img
+                          src={message.content}
+                          alt="uploaded"
+                          className="max-w-xs rounded-lg"
+                        />
+                      );
                     } else if (contentType === "file") {
                       return (
-                        <a href={message.content} target="_blank" rel="noopener" className="underline">
+                        <a
+                          href={message.content}
+                          target="_blank"
+                          rel="noopener"
+                          className="underline"
+                        >
                           {getFileName(message.content)}
                         </a>
                       );

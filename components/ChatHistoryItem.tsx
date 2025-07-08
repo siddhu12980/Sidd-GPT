@@ -9,6 +9,7 @@ import {
   Share2,
   MoreHorizontal,
 } from "lucide-react";
+import { useRouter } from "next/router";
 
 interface Conversation {
   _id: string;
@@ -155,7 +156,7 @@ export default function ChatHistoryItem({
 
       if (response.ok) {
         // Trigger a page refresh to update the conversation list
-        window.location.reload();
+        window.location.href = "/";
       } else {
         alert("Failed to delete conversation");
       }

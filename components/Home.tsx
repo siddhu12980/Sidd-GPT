@@ -20,11 +20,11 @@ import {
   Bot,
   ChevronDown,
   Settings,
-  Maximize2,
   Edit,
   Menu,
   Check,
   MessageCircleDashed,
+  Brain,
 } from "lucide-react";
 
 import PricingPage from "@/app/pricing/page";
@@ -41,6 +41,8 @@ import { useRouter } from "next/navigation";
 
 // Import the new hooks
 import { useCreateConversation } from "@/hooks/useConversations";
+import MemoriesPage from "@/components/Memories";
+import SideBarNavigation from "./SideBarNavigation";
 
 export default function Home() {
   const router = useRouter();
@@ -165,14 +167,14 @@ export default function Home() {
   };
 
   if (currentPage === "pricing") {
-    return <PricingPage  />;
+    return <PricingPage />;
   }
 
   return (
     <div className="flex h-screen bg-[#212121] text-white">
       {/* Sidebar - Hidden on mobile */}
       {sidebarOpen && !isMobile && (
-        <div className="w-64 bg-[#171717] flex flex-col  h-full">
+        <div className="w-64 bg-[#171717] flex flex-col h-full">
           {/* Sidebar Header - Fixed */}
           <div className="flex-shrink-0 p-2">
             <div className="flex justify-between items-center gap-2 mb-2">
@@ -190,44 +192,12 @@ export default function Home() {
           </div>
 
           {/* Navigation - Fixed */}
-          <div className="flex-shrink-0 flex flex-col  px-1 pb-2">
-            <CustomSidePannelTopButton
-              buttonText="New chat"
-              icon={<Edit />}
-              onClick={handleNewChat}
-            />
-
-            <div className="mb-4">
-              <CustomSidePannelTopButton
-                buttonText="Search chats"
-                icon={<Search />}
-                onClick={() => setCurrentPage("chat")}
-              />
-
-              <CustomSidePannelTopButton
-                buttonText="Library"
-                icon={<BookOpen />}
-                onClick={() => setCurrentPage("chat")}
-              />
-            </div>
-
-            <div>
-              <CustomSidePannelTopButton
-                buttonText="Sora"
-                icon={<Sparkles />}
-                onClick={() => setCurrentPage("chat")}
-              />
-
-              <CustomSidePannelTopButton
-                buttonText="GPTs"
-                icon={<Bot />}
-                onClick={() => setCurrentPage("chat")}
-              />
-            </div>
-          </div>
-
+          <SideBarNavigation
+            setCurrentPage={setCurrentPage}
+            handleNewChat={handleNewChat}
+          />
           {/* Chat History - Scrollable */}
-          <ChatHistory />
+          <ChatHistory setCurrentPage={setCurrentPage} />
 
           {/* Sidebar Footer - Fixed */}
           <div className="flex-shrink-0 p-2 border-t border-gray-700">
@@ -251,6 +221,7 @@ export default function Home() {
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && isMobile && (
         <MobileSidebar
+          sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
           setCurrentPage={setCurrentPage}
         />
@@ -259,24 +230,23 @@ export default function Home() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
         {/* Top Header */}
-        <header className="flex items-center justify-between px-4 py-3 ">
+        <header className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-1">
             {/* show this when the side pannel is collapsed  */}
-            {isMobile ||
-              (!sidebarOpen && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 mr-2"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  {isMobile ? (
-                    <Menu className="w-4 h-4" />
-                  ) : (
-                    <PanelLeft className="w-4 h-4" />
-                  )}
-                </Button>
-              ))}
+            {(isMobile || !sidebarOpen) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 mr-2"
+                onClick={() => setSidebarOpen(true)}
+              >
+                {isMobile ? (
+                  <Menu className="w-4 h-4" />
+                ) : (
+                  <PanelLeft className="w-4 h-4" />
+                )}
+              </Button>
+            )}
 
             {/* Dropdown for ChatGPT label */}
             {!isMobile ? (
@@ -359,80 +329,52 @@ export default function Home() {
         </header>
 
         {/* Chat Area */}
-        <div className="flex-1 flex flex-col items-center justify-center px-4 pb-40 relative ">
-          {messages.length === 0 ? (
-            <>
-              <div className="text-center mb-8">
-                <h1
-                  className={`font-normal text-white ${
-                    isMobile ? "text-2xl" : "text-3xl"
-                  }`}
-                >
-                  Good to see you, sidd.
-                </h1>
-              </div>
-
-              {/* Input Area */}
-              <CustomInputArea
-                input={input}
-                setInput={setInput}
-                handleSendButtonClick={handleSend}
-                isLoading={isLoading}
-              />
-            </>
-          ) : (
-            <div className="w-full max-w-4xl flex flex-col h-full">
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto mb-4 hide-scrollbar">
-                {messages.map((message, index) => (
-                  <div
-                    key={index}
-                    className={`mb-4 ${
-                      message.role === "user" ? "text-right" : "text-left"
+        {currentPage !== "memory" ? (
+          <div className="flex-1 flex flex-col items-center justify-center px-4 pb-40 relative">
+            {messages.length === 0 ? (
+              <>
+                <div className="text-center mb-8">
+                  <h1
+                    className={`font-normal text-white ${
+                      isMobile ? "text-2xl" : "text-3xl"
                     }`}
                   >
-                    <div
-                      className={`inline-block max-w-[80%] p-3 rounded-lg ${
-                        message.role === "user"
-                          ? "bg-blue-600 text-white"
-                          : "bg-gray-700 text-white"
-                      }`}
-                    >
-                      {message.content}
-                    </div>
-                  </div>
-                ))}
-                {isLoading && (
-                  <div className="text-left mb-4">
-                    <div className="inline-block max-w-[80%] p-3 rounded-lg bg-gray-700 text-white">
-                      <div className="flex items-center gap-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Thinking...
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                    Good to see you, sidd.
+                  </h1>
+                </div>
 
-              {/* Input Area */}
-              <div className="flex-shrink-0">
+                {/* Input Area */}
                 <CustomInputArea
                   input={input}
                   setInput={setInput}
-                  handleSendButtonClick={handleMessage}
+                  handleSendButtonClick={handleSend}
                   isLoading={isLoading}
                 />
+              </>
+            ) : (
+              <div className="w-full max-w-4xl flex flex-col h-full">
+                {/* Input Area */}
+                <div className="flex-shrink-0">
+                  <CustomInputArea
+                    input={input}
+                    setInput={setInput}
+                    handleSendButtonClick={handleMessage}
+                    isLoading={isLoading}
+                  />
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        ) : (
+          <MemoriesPage />
+        )}
 
-      {!isMobile && (
-        <div className="absolute start-1/2 pt-3 translate-x-[62%]">
-          <PlusIcon />
-        </div>
-      )}
+        {!isMobile && (
+          <div className="absolute start-1/2 pt-3 translate-x-[62%]">
+            <PlusIcon />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

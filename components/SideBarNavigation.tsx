@@ -1,4 +1,4 @@
-import { BookOpen, Search, Edit } from "lucide-react";
+import { BookOpen, Search, Edit, Brain } from "lucide-react";
 
 import { Bot, Sparkles } from "lucide-react";
 import CustomSidePannelTopButton from "./CustomSidePannelTopButton";
@@ -29,6 +29,12 @@ export default function SideBarNavigation({
           buttonText="Library"
           icon={<BookOpen />}
           onClick={() => setCurrentPage("chat")}
+        />
+
+        <CustomSidePannelTopButton
+          buttonText="Memories"
+          icon={<Brain />}
+          onClick={() => setCurrentPage("memory")}
         />
       </div>
 

@@ -2,37 +2,17 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { createPortal } from "react-dom";
 import "./hide-scrollbar.css";
 
-import {
-  PanelLeft,
-  Plus,
-  Menu,
-  MoreHorizontal,
-  Archive,
-  Trash2,
-  Upload,
-  LogOut,
-  User,
-  Settings as SettingsIcon,
-  HelpCircle,
-  Wand2,
-  ArrowRight,
-  CreditCard,
-} from "lucide-react";
+import { PanelLeft } from "lucide-react";
 
 import PricingPage from "@/app/pricing/page";
 import { useChat } from "@ai-sdk/react";
-import { UIMessageExtended } from "@ai-sdk/react";
 
 import { Logo } from "@/components/logo";
 import MobileSidebar from "@/components/MobileSideBar";
-import CustomInputArea from "@/components/CustomInputArea";
-import { useUser, useClerk } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import ChatConversation from "./ChatConversation";
-import GptLabelDropDown from "./GptLabelDropDown";
 import SideBarNavigation from "./SideBarNavigation";
 import ChatHistory from "./ChatHistory";
 import SideBarFooter from "./SideBarFooter";
@@ -48,6 +28,8 @@ import {
   useUpdateConversation,
 } from "@/hooks/useConversations";
 import { useIsMobile } from "@/hooks/use-mobile";
+import MemoriesPage from "./Memories";
+import MainChatScreen from "./MainChatScreen";
 
 export default function ChatClient({
   sessionId,
@@ -67,11 +49,9 @@ export default function ChatClient({
     fileType?: string;
   }[];
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const firstMessageTriggeredRef = useRef(false);
   const { user } = useUser();
-  const { signOut } = useClerk();
 
   const createConversationMutation = useCreateConversation();
   const deleteConversationMutation = useDeleteConversation();
@@ -81,7 +61,7 @@ export default function ChatClient({
   const { refetch: refetchConversations } = useConversations();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentPage, setCurrentPage] = useState("chat"); // "chat" or "pricing"
+  const [currentPage, setCurrentPage] = useState("chat"); // "chat" or "pricing" or memory
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
     null
@@ -95,11 +75,31 @@ export default function ChatClient({
     top: number;
     left: number;
   } | null>(null);
+
   const avatarBtnRef = useRef<HTMLDivElement>(null);
 
   // Add state for delete dialog
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Add state to track pending message updates
+  const [pendingMessageUpdate, setPendingMessageUpdate] = useState<{
+    id: string;
+    properties: {
+      type?: string;
+      fileUrl?: string;
+      fileName?: string;
+      fileType?: string;
+    };
+  } | null>(null);
+
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpen(false);
+    } else {
+      setSidebarOpen(true);
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -187,30 +187,42 @@ export default function ChatClient({
       fileUrl: m.fileUrl || "",
       fileName: m.fileName || "",
       fileType: m.fileType || "",
-      id: m._id || "",
+      id: m._id || `temp-${Date.now()}`, // Use _id as id for useChat
       createdAt: m.createdAt ? new Date(m.createdAt) : undefined,
       role: m.role as "system" | "user" | "assistant" | "data",
     })),
 
     onFinish: async (aiMessage) => {
-      console.log("Calling and doing onFinish");
-      console.log("sessionTitle:", sessionTitle);
-      console.log("messages.length:", messages.length);
+      console.log("AI response finished:", aiMessage);
 
-      await addMessageMutation.mutateAsync({
+      // Save AI message to database and get the real _id
+      const savedAiMessage = await addMessageMutation.mutateAsync({
         conversationId: sessionId,
         message: aiMessage,
       });
 
-      // Check if we should generate a title
-      console.log("Checking title generation condition:");
-      console.log(
-        "- sessionTitle === 'New Chat':",
-        sessionTitle === "New Chat"
-      );
-      console.log("- messages.length >= 2:", messages.length >= 2);
+      console.log("Saved AI message with real _id:", savedAiMessage);
 
-      // Generate title if it's still the default or if we have enough messages
+      // Update the AI message in the hook state with the real _id
+      // setMessages((currentMessages) => {
+      //   return currentMessages.map((msg, index) => {
+      //     // Find the AI message that was just added (should be the last one)
+      //     if (
+      //       index === currentMessages.length - 1 &&
+      //       msg.role === "assistant" &&
+      //       msg.content === aiMessage.content &&
+      //       savedAiMessage._id
+      //     ) {
+      //       return {
+      //         ...msg,
+      //         id: savedAiMessage._id, // Update with real MongoDB _id
+      //       };
+      //     }
+      //     return msg;
+      //   });
+      // });
+
+      // Generate title if needed
       const shouldGenerateTitle =
         (sessionTitle === "New Chat" ||
           !sessionTitle ||
@@ -219,16 +231,10 @@ export default function ChatClient({
 
       if (shouldGenerateTitle) {
         console.log("Generating title");
-        // Get the last few messages for context
-        const recentMessages = messages.slice(-4); // Last 4 messages for context
-
-        console.log("recentMessages", recentMessages);
-
+        const recentMessages = messages.slice(-4);
         const context = recentMessages
           .map((msg) => `${msg.role}: ${msg.content}`)
           .join("\n");
-
-        console.log("context", context);
 
         try {
           const { title } = await generateTitleMutation.mutateAsync({
@@ -236,18 +242,12 @@ export default function ChatClient({
             context,
           });
 
-          console.log("title", title);
-
-          // If a title was generated, update the conversation in the database
           if (title) {
             console.log("Updating conversation title to:", title);
             await updateConversationMutation.mutateAsync({
               id: sessionId,
               data: { title: title },
             });
-            console.log("Conversation title updated successfully");
-
-            // Trigger a refetch of conversations to update the sidebar
             refetchConversations();
           }
         } catch (error) {
@@ -262,6 +262,40 @@ export default function ChatClient({
       console.error("Chat error:", error);
     },
   });
+
+  // useEffect to update message properties after append completes - moved after useChat
+  useEffect(() => {
+    if (pendingMessageUpdate) {
+      const messageExists = messages.some(
+        (msg) => msg.id === pendingMessageUpdate.id
+      );
+
+      if (messageExists) {
+        console.log(
+          "Message found in state, updating properties:",
+          pendingMessageUpdate
+        );
+
+        setMessages((currentMessages) => {
+          return currentMessages.map((msg) => {
+            if (msg.id === pendingMessageUpdate.id) {
+              return {
+                ...msg,
+                ...pendingMessageUpdate.properties,
+              };
+            }
+            return msg;
+          });
+        });
+
+        // Only clear pending update when streaming is done
+        // Don't clear during streaming to maintain properties
+        if (status === "ready" || status === "error") {
+          setPendingMessageUpdate(null);
+        }
+      }
+    }
+  }, [messages, pendingMessageUpdate, status]); // Added status to dependencies
 
   // Check if we need to trigger AI response for first message
   useEffect(() => {
@@ -294,6 +328,8 @@ export default function ChatClient({
     }
   };
 
+  // testing reload
+
   const handleMessage = async (message: {
     content: string;
     role: "user";
@@ -304,44 +340,33 @@ export default function ChatClient({
   }) => {
     console.log("handleMessage called with:", message);
 
-    if (message.fileUrl) {
-      // Send a single multimodal message (file + text)
-      const multimodalMsg = {
-        ...message,
-      };
+    // Save user message to database first to get real _id
+    const savedUserMessage = await addMessageMutation.mutateAsync({
+      conversationId: sessionId,
+      message: message,
+    });
 
-      console.log("=== Multimodal Message Debug ===");
-      console.log("Multimodal Message:", multimodalMsg);
-      console.log("=== Multimodal Message Debug End ===");
+    console.log("Saved user message with real _id:", savedUserMessage);
 
-      await addMessageMutation.mutateAsync({
-        conversationId: sessionId,
-        message: multimodalMsg,
+    // Append the basic message to useChat state
+    append({
+      id: savedUserMessage._id,
+      role: "user",
+      content: message.content,
+      ...(message.fileUrl && { data: message.fileUrl }), // Include data for backend processing
+    } as any);
+
+    // Set up pending update for extended properties if needed
+    if (message.fileUrl || message.type) {
+      setPendingMessageUpdate({
+        id: savedUserMessage._id || `temp-${Date.now()}`,
+        properties: {
+          type: message.type || (message.fileUrl ? "image" : "text"),
+          fileUrl: message.fileUrl || "",
+          fileName: message.fileName || "",
+          fileType: message.fileType || "",
+        },
       });
-
-      // 1. Add the full multimodal message to local UI immediately (shows image + text)
-      const fullMessage = {
-        role: "user" as const,
-        content: message.fileUrl,
-        data: message.fileUrl,
-        type: message.type || "image",
-        id: `temp-${Date.now()}`, // Temporary ID for local state
-      };
-      setMessages([...messages, fullMessage]);
-
-      // 2. Append the query to AI (only text content for the AI)
-      append({
-        role: "user",
-        content: message.content,
-        data: message.fileUrl, // This will be used by the backend for multimodal processing
-      });
-    } else {
-      // Only text
-      await addMessageMutation.mutateAsync({
-        conversationId: sessionId,
-        message: message,
-      });
-      append({ role: "user", content: message.content });
     }
   };
 
@@ -396,6 +421,8 @@ export default function ChatClient({
     return <PricingPage />;
   }
 
+  append;
+
   return (
     <div className="flex h-screen bg-[#212121] text-white">
       {/* Confirm Delete Dialog */}
@@ -421,18 +448,21 @@ export default function ChatClient({
         highlight={sessionTitle}
       />
       {/* Sidebar - Hidden on mobile */}
-
       {sidebarOpen && !isMobile && (
         <div className="w-64 bg-[#171717] flex flex-col  h-full">
           {/* Sidebar Header - Fixed */}
           <div className="flex-shrink-0 p-2">
             <div className="flex justify-between items-center gap-2 mb-2">
               <Logo />
+
               <Button
                 variant="ghost"
                 size="icon"
                 className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 p-0"
-                onClick={() => setSidebarOpen(false)}
+                onClick={() => {
+                  console.log("sidebarOpen", sidebarOpen);
+                  setSidebarOpen(!sidebarOpen);
+                }}
               >
                 <PanelLeft className="w-4 h-4" />
               </Button>
@@ -446,7 +476,10 @@ export default function ChatClient({
           />
 
           {/* Chat History - Scrollable */}
-          <ChatHistory currentSessionId={sessionId} />
+          <ChatHistory
+            currentSessionId={sessionId}
+            setCurrentPage={setCurrentPage}
+          />
 
           {/* Sidebar Footer - Fixed */}
           <SideBarFooter setCurrentPage={setCurrentPage} />
@@ -457,6 +490,7 @@ export default function ChatClient({
       {sidebarOpen && isMobile && (
         <div className="fixed inset-0 z-[100]">
           <MobileSidebar
+            sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
             setCurrentPage={setCurrentPage}
           />
@@ -464,223 +498,42 @@ export default function ChatClient({
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full max-h-full relative">
-        {/* Top Header */}
-        <header className="flex items-center justify-between px-4 py-3 ">
-          <div className="flex items-center gap-1">
-            {/* show this when the side pannel is collapsed  */}
-            {isMobile ||
-              (!sidebarOpen && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 mr-2"
-                  onClick={() => setSidebarOpen(true)}
-                >
-                  {isMobile ? (
-                    <Menu className="w-4 h-4" />
-                  ) : (
-                    <PanelLeft className="w-4 h-4" />
-                  )}
-                </Button>
-              ))}
+      {currentPage === "chat" && (
+        <MainChatScreen
+          append={append}
+          stop={stop}
+          avatarBtnRef={avatarBtnRef}
+          input={input}
+          messages={messages}
+          setInput={setInput}
+          isMobile={isMobile}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          handleShare={handleShare}
+          handleArchive={handleArchive}
+          handleDelete={handleDelete}
+          handleMessage={handleMessage}
+          isLoading={isLoading}
+          status={status}
+          reload={reload}
+          setMessages={setMessages}
+          sessionId={sessionId}
+          setProfileMenuOpen={setProfileMenuOpen}
+          profileMenuOpen={profileMenuOpen}
+          profileMenuPos={profileMenuPos}
+          setCurrentPage={setCurrentPage}
+          menuOpen={menuOpen}
+          menuPos={menuPos}
+          setMenuOpen={setMenuOpen}
+        />
+      )}
 
-            {/* Dropdown for ChatGPT label */}
-            {!isMobile ? (
-              <GptLabelDropDown />
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-8  h-8 text-gray-400 hover:text-white hover:bg-gray-700 mr-2"
-                onClick={() => setSidebarOpen(true)}
-              >
-                <PanelLeft className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* Share Button */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700"
-              onClick={handleShare}
-            >
-              <Upload className="w-4 h-4" />
-            </Button>
-            {/* Action Button */}
-            <Button
-              ref={actionBtnRef}
-              variant="ghost"
-              size="icon"
-              className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700"
-              onClick={() => setMenuOpen(!menuOpen)}
-              data-menu-button
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </Button>
-            {/* User Avatar/Profile Button */}
-            {!isMobile && (
-              <div
-                ref={avatarBtnRef}
-                className="w-8 h-8 bg-[#6366f1] rounded-full flex items-center justify-center text-sm font-medium cursor-pointer hover:ring-2 hover:ring-[#8b5cf6] transition"
-                onClick={() => setProfileMenuOpen((v) => !v)}
-                data-profile-menu-button
-                tabIndex={0}
-              >
-                {user?.primaryEmailAddress?.emailAddress
-                  ? user.primaryEmailAddress.emailAddress[0].toUpperCase()
-                  : "U"}
-              </div>
-            )}
-          </div>
-        </header>
-
-        {/* Action Menu Portal */}
-        {menuOpen && menuPos && typeof window !== "undefined"
-          ? createPortal(
-              <div
-                style={{
-                  position: "fixed",
-                  top: menuPos.top,
-                  left: menuPos.left,
-                  zIndex: 9999,
-                  minWidth: 140,
-                }}
-                className="bg-[#232323] border border-[#2a2a2a] shadow-lg rounded-xl py-1 flex flex-col text-sm animate-fade-in"
-                onClick={(e) => e.stopPropagation()}
-                data-menu-portal
-              >
-                <button
-                  onClick={handleArchive}
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-[#353740] text-white w-full text-left"
-                  data-menu-item
-                >
-                  <Archive className="w-4 h-4" /> Archive
-                </button>
-                <div className="border-t border-[#353740] my-1" />
-                <button
-                  onClick={handleDelete}
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-[#353740] text-red-400 w-full text-left"
-                  data-menu-item
-                >
-                  <Trash2 className="w-4 h-4" /> Delete
-                </button>
-              </div>,
-              document.body
-            )
-          : null}
-
-        {/* Profile Menu Portal */}
-        {profileMenuOpen && profileMenuPos && typeof window !== "undefined"
-          ? createPortal(
-              <div
-                style={{
-                  position: "fixed",
-                  top: profileMenuPos.top,
-                  left: profileMenuPos.left,
-                  zIndex: 9999,
-                  minWidth: 280,
-                }}
-                className="bg-[#232323] border border-[#2a2a2a] shadow-lg rounded-xl py-2 flex flex-col text-sm animate-fade-in"
-                data-profile-menu-portal
-              >
-                <div className="flex items-center gap-2 px-5 py-2 text-gray-300 text-[15px] font-medium border-b border-[#353740] mb-1">
-                  <User className="w-4 h-4" />
-                  <span className="truncate">
-                    {user?.primaryEmailAddress?.emailAddress ||
-                      "user@example.com"}
-                  </span>
-                </div>
-                <button
-                  className="flex items-center gap-2 px-5 py-2 hover:bg-[#353740] text-white w-full text-left"
-                  onClick={() => {
-                    setProfileMenuOpen(false);
-                    setCurrentPage("pricing");
-                  }}
-                >
-                  <CreditCard className="w-4 h-4" /> Upgrade plan
-                </button>
-                <button className="flex items-center gap-2 px-5 py-2 hover:bg-[#353740] text-white w-full text-left">
-                  <Wand2 className="w-4 h-4" /> Customize ChatGPT
-                </button>
-                <button className="flex items-center gap-2 px-5 py-2 hover:bg-[#353740] text-white w-full text-left">
-                  <SettingsIcon className="w-4 h-4" /> Settings
-                </button>
-                <div className="border-t border-[#353740] my-1" />
-                <button className="flex items-center gap-2 px-5 py-2 hover:bg-[#353740] text-white w-full text-left">
-                  <HelpCircle className="w-4 h-4" /> Help
-                  <ArrowRight className="w-4 h-4 ml-auto" />
-                </button>
-                <button
-                  className="flex items-center gap-2 px-5 py-2 hover:bg-[#353740] text-white w-full text-left"
-                  onClick={() => {
-                    setProfileMenuOpen(false);
-                    signOut();
-                  }}
-                >
-                  <LogOut className="w-4 h-4" /> Log out
-                </button>
-              </div>,
-              document.body
-            )
-          : null}
-
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto px-4 pb-28 sm:pb-6 hide-scrollbar">
-          <ChatConversation
-            messages={messages.map((msg: UIMessageExtended) => ({
-              _id: msg.id,
-              id: msg.id,
-              role: msg.role,
-              content: msg.content,
-              createdAt:
-                typeof msg.createdAt === "string"
-                  ? msg.createdAt
-                  : msg.createdAt?.toISOString(),
-              type: msg.type || "text",
-              fileUrl: msg.fileUrl || "",
-              fileName: msg.fileName || "",
-              fileType: msg.fileType || "",
-            }))}
-            isLoading={isLoading}
-            status={status}
-            reload={reload}
-            setMessages={setMessages}
-            sessionId={sessionId}
-          />
-
-          <div ref={scrollRef} />
+      {/* Memories Section - Conditionally shown */}
+      {currentPage === "memory" && (
+        <div className="flex-1 flex flex-col">
+          <MemoriesPage />
         </div>
-
-        {/* Desktop: Centered, Mobile: Hidden */}
-        <div className="hidden sm:block w-full max-w-2xl mx-auto sticky bottom-0 bg-[#212121] pb-6 z-10">
-          <CustomInputArea
-            input={input}
-            setInput={setInput}
-            handleSendButtonClick={handleMessage}
-            isLoading={isLoading}
-            stop={stop}
-            status={status}
-          />
-        </div>
-
-        {/* Mobile: Fixed bottom, Desktop: Hidden */}
-        <div className="block sm:hidden fixed bottom-0 left-0 right-0 w-full bg-[#212121] z-50 px-2 pb-2">
-          <div className="max-w-2xl mx-auto">
-            <CustomInputArea
-              input={input}
-              setInput={setInput}
-              handleSendButtonClick={handleMessage}
-              isLoading={isLoading}
-              stop={stop}
-              status={status}
-            />
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

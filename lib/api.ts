@@ -14,7 +14,6 @@ export interface Conversation {
   title: string;
   createdAt: string;
   updatedAt: string;
-  
 }
 
 export interface Message {
@@ -52,6 +51,34 @@ export interface GenerateTitleResponse {
 
 export interface UpdateConversationRequest {
   title: string;
+}
+
+export interface Memory {
+  id: string;
+  memory?: string;
+  text?: string;
+  content?: string;
+  metadata?: {
+    timestamp?: string;
+    messageCount?: number;
+    [key: string]: any;
+  };
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface GetMemoriesResponse {
+  success: boolean;
+  memories: Memory[];
+}
+
+export interface DeleteMemoryRequest {
+  userId: string;
+}
+
+export interface DeleteMemoryResponse {
+  success: boolean;
+  message: string;
 }
 
 // API functions
@@ -99,6 +126,21 @@ export const conversationApi = {
     data: GenerateTitleRequest
   ): Promise<GenerateTitleResponse> => {
     const response = await api.post("/conversations/generate-title", data);
+    return response.data;
+  },
+
+  // Get all memories for a user
+  getMemories: async (userId: string): Promise<GetMemoriesResponse> => {
+    const response = await api.get(`/memories?userId=${userId}`);
+    return response.data;
+  },
+
+  // Delete a specific memory
+  deleteMemory: async (
+    memoryId: string,
+    data: DeleteMemoryRequest
+  ): Promise<DeleteMemoryResponse> => {
+    const response = await api.delete(`/memories/${memoryId}`, { data });
     return response.data;
   },
 };

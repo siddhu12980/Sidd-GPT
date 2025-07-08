@@ -10,7 +10,7 @@ export default function PricingPage() {
   const router = useRouter()
 
   const handleBack = () => {
-    router.back()
+    router.push('/')
   }
 
   return (

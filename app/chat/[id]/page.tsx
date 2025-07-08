@@ -27,7 +27,7 @@ export default async function ChatSessionPage({
   const { userId } = await auth();
   if (!userId) return notFound();
 
-  // Find the user in  DB
+  
   const user = await User.findOne({ clerkId: userId });
 
   if (!user) return notFound();

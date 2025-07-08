@@ -4,8 +4,9 @@ import { ScrollArea } from "@radix-ui/react-scroll-area";
 import { Button } from "./ui/button";
 import { Bot, Settings } from "lucide-react";
 import { Search, Sparkles } from "lucide-react";
-import { BookOpen, Edit } from "lucide-react";
+import { BookOpen, Edit, Brain } from "lucide-react";
 import { PanelLeft } from "lucide-react";
+import { Logo } from "./logo";
 
 interface Conversation {
   _id: string;
@@ -17,9 +18,11 @@ interface Conversation {
 export default function MobileSidebar({
   setSidebarOpen,
   setCurrentPage,
+  sidebarOpen,
 }: {
   setSidebarOpen: (open: boolean) => void;
   setCurrentPage: (page: string) => void;
+  sidebarOpen: boolean;
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +43,9 @@ export default function MobileSidebar({
       const data = await response.json();
       setConversations(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch conversations");
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch conversations"
+      );
     } finally {
       setLoading(false);
     }
@@ -48,6 +53,7 @@ export default function MobileSidebar({
 
   const handleConversationClick = (conversationId: string) => {
     setSidebarOpen(false);
+    setCurrentPage("chat");
     router.push(`/chat/${conversationId}`);
   };
 
@@ -61,8 +67,8 @@ export default function MobileSidebar({
         {/* Sidebar Header - Fixed */}
         <div className="flex-shrink-0 p-2">
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center">
-              <div className="w-3 h-3 bg-black rounded-full"></div>
+            <div className="w-6 h-6  rounded-full flex items-center justify-center">
+                <Logo />
             </div>
             <Button
               variant="ghost"
@@ -111,6 +117,17 @@ export default function MobileSidebar({
               <Bot className="w-4 h-4" />
               <span className="text-sm">GPTs</span>
             </Button>
+            <Button
+              variant="ghost"
+              className="w-full justify-start gap-3 text-gray-300 hover:text-white hover:bg-gray-700 h-9 px-3 rounded-lg"
+              onClick={() => {
+                setSidebarOpen(false);
+                setCurrentPage("memory");
+              }}
+            >
+              <Brain className="w-4 h-4" />
+              <span className="text-sm">Memories</span>
+            </Button>
           </div>
         </div>
 
@@ -123,12 +140,17 @@ export default function MobileSidebar({
             <div className="space-y-1 pb-4">
               {loading ? (
                 [...Array(5)].map((_, index) => (
-                  <div key={index} className="h-10 bg-gray-700 rounded-lg animate-pulse" />
+                  <div
+                    key={index}
+                    className="h-10 bg-gray-700 rounded-lg animate-pulse"
+                  />
                 ))
               ) : error ? (
                 <p className="text-red-400 text-sm px-3 py-2">{error}</p>
               ) : conversations.length === 0 ? (
-                <p className="text-gray-500 text-sm px-3 py-2">No conversations yet</p>
+                <p className="text-gray-500 text-sm px-3 py-2">
+                  No conversations yet
+                </p>
               ) : (
                 conversations.map((conversation) => (
                   <Button
@@ -137,7 +159,9 @@ export default function MobileSidebar({
                     className="w-full justify-start text-left text-gray-300 hover:text-white hover:bg-gray-700 h-auto py-2 px-3 rounded-lg"
                     onClick={() => handleConversationClick(conversation._id)}
                   >
-                    <span className="truncate text-sm font-normal">{conversation.title}</span>
+                    <span className="truncate text-sm font-normal">
+                      {conversation.title}
+                    </span>
                   </Button>
                 ))
               )}

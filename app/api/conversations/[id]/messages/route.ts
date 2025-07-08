@@ -85,6 +85,7 @@ export async function DELETE(
 
   const { searchParams } = new URL(req.url);
   const afterId = searchParams.get("after");
+  const includeTarget = searchParams.get("includeTarget") === "true";
 
   if (!afterId)
     return NextResponse.json({ error: "Missing after param" }, { status: 400 });
@@ -92,6 +93,7 @@ export async function DELETE(
   console.log("=== DELETE Debug ===");
   console.log("Session ID:", id);
   console.log("After ID:", afterId);
+  console.log("Include Target:", includeTarget);
 
   // Find the session with populated messages
   const session = await Session.findById(id).populate("messages");
@@ -100,7 +102,7 @@ export async function DELETE(
   if (!session)
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
 
-  // Find the index of the message we want to keep
+  // Find the index of the target message
   const messageIndex = session.messages.findIndex(
     (msg: any) => msg._id.toString() === afterId
   );
@@ -112,8 +114,13 @@ export async function DELETE(
       { status: 404 }
     );
 
-  // Get all messages after this index
-  const messagesToDelete = session.messages.slice(messageIndex + 1);
+  // Determine starting index based on operation type
+  const startIndex = includeTarget ? messageIndex : messageIndex + 1;
+  console.log("Start index for deletion:", startIndex);
+
+  // Get messages to delete
+  const messagesToDelete = session.messages.slice(startIndex);
+
   console.log("Messages to delete:", messagesToDelete);
   console.log("Number of messages to delete:", messagesToDelete.length);
 
@@ -125,6 +132,7 @@ export async function DELETE(
     const deleteResult = await Message.deleteMany({
       _id: { $in: toDeleteIds },
     });
+
     console.log("Delete result:", deleteResult);
 
     // Remove from session.messages array
@@ -134,5 +142,9 @@ export async function DELETE(
     console.log("Session update result:", updateResult);
   }
 
-  return NextResponse.json({ success: true, deletedCount: toDeleteIds.length });
+  return NextResponse.json({
+    success: true,
+    deletedCount: toDeleteIds.length,
+    operation: includeTarget ? "delete" : "edit",
+  });
 }

@@ -47,6 +47,7 @@ export async function PATCH(
   const message = await Message.findOneAndUpdate(
     { _id: messageId },
     { content },
+    
     { new: true }
   );
 

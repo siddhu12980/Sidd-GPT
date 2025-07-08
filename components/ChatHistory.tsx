@@ -1,15 +1,15 @@
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ChatHistoryItem from "./ChatHistoryItem";
 import { ScrollArea } from "./ui/scroll-area";
 import { useConversations } from "@/hooks/useConversations";
-import { Conversation } from "@/lib/api";
 import "./hide-scrollbar.css";
 
 export default function ChatHistory({
   currentSessionId,
+  setCurrentPage,
 }: {
   currentSessionId?: string;
+  setCurrentPage?: (page: string) => void;
 }) {
   const router = useRouter();
 
@@ -24,6 +24,8 @@ export default function ChatHistory({
   const safeConversations = Array.isArray(conversations) ? conversations : [];
 
   const handleConversationClick = (conversationId: string) => {
+    // Reset to chat page when navigating to a conversation
+    setCurrentPage?.("chat");
     router.push(`/chat/${conversationId}`);
   };
 
