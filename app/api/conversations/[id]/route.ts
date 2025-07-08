@@ -29,7 +29,7 @@ export async function GET(
     user: user._id,
   }).populate({
     path: "messages",
-    select: "role content createdAt type fileName fileType fileUrl",
+    select: "role content createdAt type fileName fileType fileUrl attachments attachmentUrls attachmentTypes attachmentNames attachmentCount hasMultipleAttachments",
     options: { sort: { createdAt: 1 } },
   });
   if (!session)

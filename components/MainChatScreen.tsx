@@ -54,6 +54,7 @@ export default function MainChatScreen({
   menuPos,
   setMenuOpen,
   stop,
+  userId,
 }: {
   append: (message: { role: "user"; content: string; data?: string }) => void;
   avatarBtnRef: React.RefObject<HTMLDivElement | null>;
@@ -73,6 +74,10 @@ export default function MainChatScreen({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
+    // NEW: Multiple attachments support
+    attachmentUrls?: string[];
+    attachmentTypes?: string[];
+    attachmentNames?: string[];
   }) => void;
   isLoading: boolean;
   status: string;
@@ -89,6 +94,7 @@ export default function MainChatScreen({
   menuPos: { top: number; left: number } | null;
   setMenuOpen: (open: boolean) => void;
   stop: () => void;
+  userId?: string;
 }) {
   const actionBtnRef = useRef<HTMLButtonElement>(null);
   const { signOut } = useClerk();
@@ -106,12 +112,10 @@ export default function MainChatScreen({
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  console.log("checking messages", messages);
-
   return (
     <div className="flex-1 flex flex-col h-full max-h-full relative">
       {/* Top Header */}
-      <header className="flex items-center justify-between px-4 py-3 ">
+      <header className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-1">
           {/* show this when the side pannel is collapsed  */}
           {isMobile ||
@@ -274,31 +278,36 @@ export default function MainChatScreen({
         : null}
 
       {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto px-4 pb-28 sm:pb-6 hide-scrollbar">
-        <ChatConversation
-          handleMessage={handleMessage}
-          messages={messages.map((msg: UIMessageExtended) => ({
-            _id: msg._id,
-            id: msg.id,
-            role: msg.role,
-            content: msg.content,
-            createdAt:
-              typeof msg.createdAt === "string"
-                ? msg.createdAt
-                : msg.createdAt?.toISOString(),
-            type: msg.type || "text",
-            fileUrl: msg.fileUrl || "",
-            fileName: msg.fileName || "",
-            fileType: msg.fileType || "",
-          }))}
-          isLoading={isLoading}
-          status={status}
-          reload={reload}
-          setMessages={setMessages}
-          sessionId={sessionId}
-          append={append}
-        />
-
+      <div className="flex-1 overflow-y-auto pb-28 sm:pb-6 hide-scrollbar">
+        <div className="h-full flex flex-col px-4">
+          <ChatConversation
+            handleMessage={handleMessage}
+            messages={messages.map((msg: UIMessageExtended) => ({
+              _id: msg._id,
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              createdAt:
+                typeof msg.createdAt === "string"
+                  ? msg.createdAt
+                  : msg.createdAt?.toISOString(),
+              type: msg.type || "text",
+              fileUrl: msg.fileUrl || "",
+              fileName: msg.fileName || "",
+              fileType: msg.fileType || "",
+              attachmentUrls: msg.attachmentUrls || [],
+              attachmentTypes: msg.attachmentTypes || [],
+              attachmentNames: msg.attachmentNames || [],
+            }))}
+            isLoading={isLoading}
+            status={status}
+            reload={reload}
+            setMessages={setMessages}
+            sessionId={sessionId}
+            append={append}
+            userId={userId}
+          />
+        </div>
         <div ref={scrollRef} />
       </div>
 

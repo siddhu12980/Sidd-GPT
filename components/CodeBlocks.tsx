@@ -104,7 +104,7 @@ export function CodeBlock({
 
         <SyntaxHighlighter
           language={language}
-          style={isDarkMode ? oneDark : vs}
+          style={oneDark}
           customStyle={{
             margin: 0,
             fontSize: "0.9rem",

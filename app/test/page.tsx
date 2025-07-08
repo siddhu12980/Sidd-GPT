@@ -21,8 +21,6 @@ export default function TestPage() {
     const results = [];
     const API_URL = "/api/chat";
 
-    console.log("🧪 Testing Rate Limiting...");
-
     // Make 15 requests rapidly (should hit the 10/minute limit)
     for (let i = 0; i < 15; i++) {
       try {
@@ -64,13 +62,6 @@ export default function TestPage() {
 
     const rateLimited = results.filter((r) => r.status === 429).length;
     const successful = results.filter((r) => r.status === 200).length;
-
-    console.log(`📈 Rate Limit Test Summary:`);
-    console.log(`- Successful: ${successful}`);
-    console.log(`- Rate Limited: ${rateLimited}`);
-    console.log(
-      `- Rate limiting working: ${rateLimited > 0 ? "✅ YES" : "❌ NO"}`
-    );
   };
 
   const fetchUsageData = async () => {

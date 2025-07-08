@@ -1,6 +1,5 @@
 "use client";
 
-import ReactMarkdown from "react-markdown";
 import { useEffect, useRef, useState } from "react";
 import { Edit, Trash2, Brain } from "lucide-react";
 import ChatActionBar from "./ChatActionBar";
@@ -17,6 +16,7 @@ export default function ChatConversation({
   setMessages,
   sessionId,
   append,
+  userId,
 }: {
   handleMessage: (msg: {
     content: string;
@@ -25,6 +25,10 @@ export default function ChatConversation({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
+    // NEW: Multiple attachments support
+    attachmentUrls?: string[];
+    attachmentTypes?: string[];
+    attachmentNames?: string[];
   }) => void;
   messages: {
     _id?: string;
@@ -37,6 +41,10 @@ export default function ChatConversation({
     fileType?: string;
     fileUrl?: string;
     parts?: { text: string }[];
+    // NEW: Multiple attachments support
+    attachmentUrls?: string[];
+    attachmentTypes?: string[];
+    attachmentNames?: string[];
   }[];
   isLoading: boolean;
   status?: string;
@@ -51,6 +59,7 @@ export default function ChatConversation({
     data?: string;
     id?: string;
   }) => void;
+  userId?: string;
 }) {
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -65,151 +74,124 @@ export default function ChatConversation({
     }
   }, [messages.length]);
 
-  console.log("messages in chat conversation", messages);
-
   const handleEdit = (msg: any) => {
-    console.log("=== handleEdit Debug ===");
-    console.log("Message object:", msg);
-    console.log("Message _id:", msg._id);
-    console.log("Message id:", msg.id);
-    console.log("Message content:", msg.content);
     setEditingId(msg._id || msg.id);
     setEditValue(msg.content);
   };
 
-  const handleEditSave = async (msg: any, idx: number) => {
-    console.log("=== handleEditSave Debug ===");
-    console.log("Original message object:", msg);
-    console.log("Message _id:", msg._id);
-    console.log("Message id:", msg.id);
-    console.log("Edit value:", editValue);
-    console.log("Session ID:", sessionId);
-    console.log("Message index:", idx);
+  const handleEditSave = async () => {
+    if (editingId && editValue.trim() !== "") {
+      // 1. Create updated message with preserved properties
+      const originalMessage = messages.find((msg) => msg.id === editingId);
+      if (!originalMessage) return;
 
-    console.log("Message properties to preserve:", {
-      type: msg.type,
-      fileUrl: msg.fileUrl,
-      fileName: msg.fileName,
-      fileType: msg.fileType,
-    });
+      const updatedMessage = {
+        ...originalMessage,
+        content: editValue.trim(),
+      };
 
-    const messageId = msg._id || msg.id;
+      // 2. Update UI immediately
+      const messageIndex = messages.findIndex((msg) => msg.id === editingId);
+      if (messageIndex === -1) return;
 
-    if (!messageId) {
-      console.error("No message ID found!");
-      return;
-    }
+      // Update the message and remove all messages after it
+      const updatedMessages = [
+        ...messages.slice(0, messageIndex),
+        updatedMessage,
+      ];
 
-    // Create updated message preserving ALL original properties except content
-    const updatedMessage = {
-      ...msg, // Preserve all original properties
-      content: editValue, // Only update content
-    };
-
-    console.log("Updated message object:", updatedMessage);
-
-    // First, update the UI immediately with the edited message
-    // Keep messages up to and including the edited message, remove all after
-    const newMessages = [
-      ...messages.slice(0, idx), // All messages before the edited one
-      updatedMessage, // The edited message with new content
-      // Remove all messages after the edited one
-    ];
-
-    console.log("New messages array:", newMessages);
-    setEditingId(null);
-    setEditValue("");
-    setMessages?.(newMessages);
-
-    // PATCH edited message - only send content to preserve other fields
-    try {
-      const patchResponse = await fetch(
-        `/api/conversations/${sessionId}/messages/${messageId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: editValue }),
-        }
-      );
-
-      if (!patchResponse.ok) {
-        console.error("Failed to update message:", patchResponse.status);
-        const errorText = await patchResponse.text();
-        console.error("Error details:", errorText);
-        return;
+      if (setMessages) {
+        setMessages(updatedMessages);
       }
+      setEditingId(null);
+      setEditValue("");
 
-      const updatedMessageFromServer = await patchResponse.json();
-      console.log("Message updated on server:", updatedMessageFromServer);
-    } catch (error) {
-      console.error("Error updating message:", error);
-      return;
-    }
-
-    // Delete all messages after the edited message (but keep the edited message)
-    try {
-      const deleteResponse = await fetch(
-        `/api/conversations/${sessionId}/messages?after=${messageId}&includeTarget=false`,
-        {
-          method: "DELETE",
-        }
-      );
-
-      if (!deleteResponse.ok) {
-        console.error(
-          "Failed to delete subsequent messages:",
-          deleteResponse.status
-        );
-        return;
-      }
-
-      const deleteResult = await deleteResponse.json();
-      console.log(
-        "Successfully deleted messages after edited message:",
-        deleteResult
-      );
-    } catch (error) {
-      console.error("Error deleting subsequent messages:", error);
-      return;
-    }
-
-    // Trigger AI response using reload() to avoid creating duplicate messages
-    // reload() works on the current message state and doesn't add new messages
-    if (reload) {
-      console.log("Triggering AI response with reload()");
       try {
-        // For multimodal messages, pass the file data to reload()
-        if (msg.fileUrl) {
-          await reload({
-            data: msg.fileUrl, // Pass the file URL as data
-            body: {
-              // Any additional multimodal context if needed
-              fileType: msg.fileType,
-              fileName: msg.fileName,
+        // 3. Update the message on the server (PATCH request)
+        const response = await fetch(
+          `/api/conversations/${sessionId}/messages/${editingId}`,
+          {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
             },
-          });
-        } else {
-          // For text-only messages
-          await reload();
+            body: JSON.stringify({
+              content: editValue.trim(),
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        // 4. ✅ FIXED: Delete subsequent messages using the correct bulk deletion API
+        if (messageIndex < messages.length - 1) {
+          // There are messages after the edited one that need to be deleted
+          const deleteResponse = await fetch(
+            `/api/conversations/${sessionId}/messages?after=${editingId}&includeTarget=false`,
+            {
+              method: "DELETE",
+            }
+          );
+
+          if (!deleteResponse.ok) {
+            console.error("Failed to delete subsequent messages:", deleteResponse.status);
+          } else {
+            const deleteResult = await deleteResponse.json();
+            console.log("Bulk deletion result:", deleteResult);
+          }
+        }
+
+        // 5. Trigger AI response with the updated context
+        const msg = updatedMessage;
+
+        // ✅ FIXED: Handle multiple attachments in reload call
+        if (reload) {
+          if (msg.attachmentUrls && msg.attachmentUrls.length > 0) {
+            // Multiple attachments - use correct body structure
+            reload({
+              body: {
+                userId: userId || "anonymous",
+                sessionId: sessionId,
+                attachmentUrls: msg.attachmentUrls,
+                attachmentTypes: msg.attachmentTypes,
+              },
+            });
+          } else if (msg.fileUrl) {
+            // Single file - legacy support
+            reload({
+              body: {
+                userId: userId || "anonymous",
+                sessionId: sessionId,
+                data: msg.fileUrl,
+              },
+            });
+          } else {
+            // Text only message
+            reload({
+              body: {
+                userId: userId || "anonymous",
+                sessionId: sessionId,
+              },
+            });
+          }
         }
       } catch (error) {
-        console.error("Error triggering AI response:", error);
+        console.error("Error updating message:", error);
+        // Revert UI changes on error
+        if (setMessages) {
+          setMessages(messages);
+        }
       }
-    } else {
-      console.log("No reload function available");
     }
   };
 
   const handleDelete = async (msg: any, idx: number) => {
     const messageId = msg._id || msg.id;
 
-    console.log("=== handleDelete Debug ===");
-    console.log("Deleting message", messageId);
-    console.log("Message index:", idx);
-
     // Remove this message and all after it
     const newMessages = messages.slice(0, idx);
-    console.log("New messages after delete:", newMessages);
     setMessages?.(newMessages);
 
     // Delete this message and all messages after it from the server (includeTarget=true)
@@ -227,7 +209,6 @@ export default function ChatConversation({
       }
 
       const deleteResult = await deleteResponse.json();
-      console.log("Successfully deleted messages from server:", deleteResult);
     } catch (error) {
       console.error("Error deleting messages:", error);
       return;
@@ -287,32 +268,34 @@ export default function ChatConversation({
           ref={index === messages.length - 1 ? lastMessageRef : undefined}
         >
           {message.role === "assistant" ? (
-            <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-transparent text-white hide-scrollbar">
-              {(() => {
-                const contentType = getContentType(message.content);
-                if (contentType === "image") {
-                  return (
-                    <img
-                      src={message.content}
-                      alt="uploaded"
-                      className="max-w-xs rounded-lg"
-                    />
-                  );
-                } else if (contentType === "file") {
-                  return (
-                    <a
-                      href={message.content}
-                      target="_blank"
-                      rel="noopener"
-                      className="underline"
-                    >
-                      {getFileName(message.content)}
-                    </a>
-                  );
-                } else {
-                  return <Markdown>{message.content}</Markdown>;
-                }
-              })()}
+            <div className="prose prose-invert break-words  py-3 rounded-2xl text-base max-w-[90%] bg-transparent text-white hide-scrollbar overflow-x-auto">
+              <div className="min-w-0 w-full overflow-x-auto">
+                {(() => {
+                  const contentType = getContentType(message.content);
+                  if (contentType === "image") {
+                    return (
+                      <img
+                        src={message.content}
+                        alt="uploaded"
+                        className="max-w-xs rounded-lg"
+                      />
+                    );
+                  } else if (contentType === "file") {
+                    return (
+                      <a
+                        href={message.content}
+                        target="_blank"
+                        rel="noopener"
+                        className="underline"
+                      >
+                        {getFileName(message.content)}
+                      </a>
+                    );
+                  } else {
+                    return <Markdown>{message.content}</Markdown>;
+                  }
+                })()}
+              </div>
               <ChatActionBar
                 content={message.content}
                 onRegenerate={
@@ -330,7 +313,7 @@ export default function ChatConversation({
           ) : (
             <div className="flex flex-col items-end group">
               {editingId === (message._id || message.id) ? (
-                <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white hide-scrollbar">
+                <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white hide-scrollbar overflow-x-auto">
                   <textarea
                     className="w-full bg-transparent text-white resize-none border-none outline-none p-0 m-0 hide-scrollbar"
                     value={editValue}
@@ -338,7 +321,7 @@ export default function ChatConversation({
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        handleEditSave(message, index);
+                        handleEditSave();
                       } else if (e.key === "Escape") {
                         setEditingId(null);
                         setEditValue("");
@@ -351,17 +334,96 @@ export default function ChatConversation({
               ) : (
                 <>
                   {(() => {
-                    console.log("=== Message Rendering Debug ===");
-                    console.log("Message:", message);
-                    console.log("Message type:", message.type);
-                    console.log("Message fileUrl:", message.fileUrl);
-                    console.log("Message fileName:", message.fileName);
-                    console.log("Message fileType:", message.fileType);
-                    console.log("=== End Debug ===");
-                    
+                    // NEW: Handle multiple attachments (mixed type OR multiple attachments detected)
+                    if (
+                      (message.type === "mixed" ||
+                        (message.attachmentUrls &&
+                          message.attachmentUrls.length > 1)) &&
+                      message.attachmentUrls &&
+                      message.attachmentUrls.length > 0
+                    ) {
+                      return (
+                        <div className="flex flex-col items-end">
+                          {/* Display all attachments */}
+                          <div className="flex flex-wrap gap-2 mb-2 max-w-md">
+                            {message.attachmentUrls.map((url, index) => {
+                              const type =
+                                message.attachmentTypes?.[index] || "file";
+                              const name =
+                                message.attachmentNames?.[index] ||
+                                `Attachment ${index + 1}`;
+
+                              if (
+                                type === "image" ||
+                                url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i)
+                              ) {
+                                return (
+                                  <img
+                                    key={index}
+                                    src={url}
+                                    alt={name}
+                                    className="w-20 h-20 object-cover rounded-lg"
+                                  />
+                                );
+                              } else {
+                                // File attachment
+                                const isPdf =
+                                  name.toLowerCase().endsWith(".pdf") ||
+                                  type === "application/pdf";
+                                const isDoc = name
+                                  .toLowerCase()
+                                  .match(/\.(doc|docx)$/);
+
+                                return (
+                                  <div
+                                    key={index}
+                                    className="flex items-center gap-2 bg-[#232323] rounded-xl p-2 min-w-[120px]"
+                                  >
+                                    <div className="flex-shrink-0">
+                                      {isPdf ? (
+                                        <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                                          <span className="text-red-600 text-sm font-bold">
+                                            📄
+                                          </span>
+                                        </div>
+                                      ) : isDoc ? (
+                                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                          <span className="text-blue-600 text-sm font-bold">
+                                            📝
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
+                                          <span className="text-gray-600 text-sm font-bold">
+                                            📎
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-medium text-white truncate">
+                                        {name}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                            })}
+                          </div>
+                          {/* Show text content if any */}
+                          {message.content &&
+                            message.content.trim() !==
+                              `Analyze these ${message.attachmentUrls.length} files` && (
+                              <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white mt-1 hide-scrollbar">
+                                <span>{message.content}</span>
+                              </div>
+                            )}
+                        </div>
+                      );
+                    }
+
                     // If it's an image message with fileUrl, show the image and text
                     if (message.type === "image" && message.fileUrl) {
-                      console.log("🖼️ Rendering image message");
                       return (
                         <div className="flex flex-col items-end">
                           <img
@@ -380,29 +442,39 @@ export default function ChatConversation({
                         </div>
                       );
                     }
-                    
+
                     // If it's a file message (PDF, DOC, etc.) with fileUrl, show file icon and text
                     if (message.type === "file" && message.fileUrl) {
-                      console.log("📄 Rendering file message - this should be your PDF!");
-                      const isPdf = message.fileName?.toLowerCase().endsWith('.pdf') || message.fileType === 'application/pdf';
-                      const isDoc = message.fileName?.toLowerCase().match(/\.(doc|docx)$/) || message.fileType?.includes('word');
-                      console.log("isPdf:", isPdf, "isDoc:", isDoc);
-                      
+                      const isPdf =
+                        message.fileName?.toLowerCase().endsWith(".pdf") ||
+                        message.fileType === "application/pdf";
+                      const isDoc =
+                        message.fileName
+                          ?.toLowerCase()
+                          .match(/\.(doc|docx)$/) ||
+                        message.fileType?.includes("word");
+
                       return (
                         <div className="flex flex-col items-end">
                           <div className="flex items-center gap-3 mb-2 bg-[#232323] rounded-xl p-3 max-w-xs">
                             <div className="flex-shrink-0">
                               {isPdf ? (
                                 <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                                  <span className="text-red-600 text-xl font-bold">📄</span>
+                                  <span className="text-red-600 text-xl font-bold">
+                                    📄
+                                  </span>
                                 </div>
                               ) : isDoc ? (
                                 <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                                  <span className="text-blue-600 text-xl font-bold">📝</span>
+                                  <span className="text-blue-600 text-xl font-bold">
+                                    📝
+                                  </span>
                                 </div>
                               ) : (
                                 <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                                  <span className="text-gray-600 text-xl font-bold">📎</span>
+                                  <span className="text-gray-600 text-xl font-bold">
+                                    📎
+                                  </span>
                                 </div>
                               )}
                             </div>
@@ -411,7 +483,11 @@ export default function ChatConversation({
                                 {message.fileName || "Document"}
                               </p>
                               <p className="text-xs text-gray-400">
-                                {isPdf ? "PDF Document" : isDoc ? "Word Document" : "File"}
+                                {isPdf
+                                  ? "PDF Document"
+                                  : isDoc
+                                  ? "Word Document"
+                                  : "File"}
                               </p>
                             </div>
                           </div>
@@ -426,7 +502,7 @@ export default function ChatConversation({
                         </div>
                       );
                     }
-                    
+
                     // If it's a temporary image message (type is image but no fileUrl), show only the image from content
                     if (
                       message.type === "image" &&
@@ -443,7 +519,7 @@ export default function ChatConversation({
                         </div>
                       );
                     }
-                    
+
                     // Fallback to your existing logic
                     const contentType = getContentType(message.content);
                     if (contentType === "image") {

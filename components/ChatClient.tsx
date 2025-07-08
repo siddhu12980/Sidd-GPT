@@ -47,6 +47,18 @@ export default function ChatClient({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
+    // NEW: Multiple attachments support
+    attachments?: {
+      type: string;
+      url: string;
+      fileName: string;
+      fileType: string;
+    }[];
+    attachmentUrls?: string[];
+    attachmentTypes?: string[];
+    attachmentNames?: string[];
+    attachmentCount?: number;
+    hasMultipleAttachments?: boolean;
   }[];
 }) {
   const router = useRouter();
@@ -90,6 +102,10 @@ export default function ChatClient({
       fileUrl?: string;
       fileName?: string;
       fileType?: string;
+      // NEW: Multiple attachments support
+      attachmentUrls?: string[];
+      attachmentTypes?: string[];
+      attachmentNames?: string[];
     };
   } | null>(null);
 
@@ -187,14 +203,19 @@ export default function ChatClient({
       fileUrl: m.fileUrl || "",
       fileName: m.fileName || "",
       fileType: m.fileType || "",
+      // NEW: Include attachment data for multiple files
+      attachments: m.attachments || [],
+      attachmentUrls: m.attachmentUrls || [],
+      attachmentTypes: m.attachmentTypes || [],
+      attachmentNames: m.attachmentNames || [],
+      attachmentCount: m.attachmentCount || 0,
+      hasMultipleAttachments: m.hasMultipleAttachments || false,
       id: m._id || `temp-${Date.now()}`, // Use _id as id for useChat
       createdAt: m.createdAt ? new Date(m.createdAt) : undefined,
       role: m.role as "system" | "user" | "assistant" | "data",
     })),
 
     onFinish: async (aiMessage) => {
-      console.log("AI response finished:", aiMessage);
-
       // Save AI message to database and get the real _id
       const savedAiMessage = await addMessageMutation.mutateAsync({
         conversationId: sessionId,
@@ -230,7 +251,6 @@ export default function ChatClient({
         messages.length >= 2;
 
       if (shouldGenerateTitle) {
-        console.log("Generating title");
         const recentMessages = messages.slice(-4);
         const context = recentMessages
           .map((msg) => `${msg.role}: ${msg.content}`)
@@ -243,7 +263,6 @@ export default function ChatClient({
           });
 
           if (title) {
-            console.log("Updating conversation title to:", title);
             await updateConversationMutation.mutateAsync({
               id: sessionId,
               data: { title: title },
@@ -256,7 +275,7 @@ export default function ChatClient({
       }
     },
     onResponse: (response) => {
-      console.log("response", response);
+      // Handle response if needed
     },
     onError: (error) => {
       console.error("Chat error:", error);
@@ -271,11 +290,6 @@ export default function ChatClient({
       );
 
       if (messageExists) {
-        console.log(
-          "Message found in state, updating properties:",
-          pendingMessageUpdate
-        );
-
         setMessages((currentMessages) => {
           return currentMessages.map((msg) => {
             if (msg.id === pendingMessageUpdate.id) {
@@ -337,40 +351,96 @@ export default function ChatClient({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
+    // NEW: Multiple attachments support
+    attachmentUrls?: string[];
+    attachmentTypes?: string[];
+    attachmentNames?: string[];
   }) => {
-    console.log("handleMessage called with:", message);
-
     // Save user message to database first to get real _id
     const savedUserMessage = await addMessageMutation.mutateAsync({
       conversationId: sessionId,
-      message: message,
+      message: {
+        ...message,
+        type: message.type as "text" | "image" | "file" | "mixed",
+        // NEW: Construct attachments array if multiple attachments exist
+        ...(message.attachmentUrls &&
+          message.attachmentUrls.length > 0 && {
+            attachments: message.attachmentUrls.map((url, index) => ({
+              type: (message.attachmentTypes?.[index] || "file") as
+                | "image"
+                | "pdf"
+                | "file",
+              url: url,
+              fileName:
+                message.attachmentNames?.[index] ||
+                url.split("/").pop() ||
+                "unknown",
+              fileType:
+                message.attachmentTypes?.[index] === "image"
+                  ? "image/*"
+                  : message.attachmentTypes?.[index] === "pdf"
+                  ? "application/pdf"
+                  : "application/octet-stream",
+            })),
+          }),
+      },
     });
 
-    console.log("Saved user message with real _id:", savedUserMessage);
+    // Check if this is a multiple attachments message
+    if (message.attachmentUrls && message.attachmentUrls.length > 0) {
+      // For multiple attachments, append with the new format and include in body
+      append(
+        {
+          id: savedUserMessage._id,
+          role: "user",
+          content: message.content,
+        } as any,
+        {
+          body: {
+            userId: user?.id || "anonymous",
+            sessionId: sessionId,
+            attachmentUrls: message.attachmentUrls,
+            attachmentTypes: message.attachmentTypes,
+          },
+        }
+      );
 
-    
-
-    // Append the basic message to useChat state
-    append({
-      id: savedUserMessage._id,
-      role: "user",
-      content: message.content,
-    
-      ...(message.fileUrl && { data: message.fileUrl }), // Include data for backend processing
-      
-    } as any);
-
-    // Set up pending update for extended properties if needed
-    if (message.fileUrl || message.type) {
+      // Set pending update for display properties
       setPendingMessageUpdate({
         id: savedUserMessage._id || `temp-${Date.now()}`,
         properties: {
-          type: message.type || (message.fileUrl ? "image" : "text"),
-          fileUrl: message.fileUrl || "",
-          fileName: message.fileName || "",
-          fileType: message.fileType || "",
+          type: "mixed" as "text" | "image" | "file" | "mixed",
+          // Store attachment info for display
+          attachmentUrls: message.attachmentUrls,
+          attachmentTypes: message.attachmentTypes,
+          attachmentNames: message.attachmentNames,
         },
       });
+    } else {
+      // LEGACY: Single file handling (backward compatibility)
+      append({
+        id: savedUserMessage._id,
+        role: "user",
+        content: message.content,
+        ...(message.fileUrl && { data: message.fileUrl }), // Include data for backend processing
+      } as any);
+
+      // Set up pending update for extended properties if needed
+      if (message.fileUrl || message.type) {
+        setPendingMessageUpdate({
+          id: savedUserMessage._id || `temp-${Date.now()}`,
+          properties: {
+            type: (message.type || (message.fileUrl ? "image" : "text")) as
+              | "text"
+              | "image"
+              | "file"
+              | "mixed",
+            fileUrl: message.fileUrl || "",
+            fileName: message.fileName || "",
+            fileType: message.fileType || "",
+          },
+        });
+      }
     }
   };
 
@@ -464,7 +534,6 @@ export default function ChatClient({
                 size="icon"
                 className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 p-0"
                 onClick={() => {
-                  console.log("sidebarOpen", sidebarOpen);
                   setSidebarOpen(!sidebarOpen);
                 }}
               >
@@ -529,6 +598,7 @@ export default function ChatClient({
           menuOpen={menuOpen}
           menuPos={menuPos}
           setMenuOpen={setMenuOpen}
+          userId={user?.id}
         />
       )}
 

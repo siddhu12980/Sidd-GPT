@@ -2,6 +2,8 @@ import { BookOpen, Search, Edit, Brain } from "lucide-react";
 
 import { Bot, Sparkles } from "lucide-react";
 import CustomSidePannelTopButton from "./CustomSidePannelTopButton";
+import { useState } from "react";
+import { SearchModal } from "./SearchModal";
 
 export default function SideBarNavigation({
   handleNewChat,
@@ -10,6 +12,8 @@ export default function SideBarNavigation({
   handleNewChat: () => void;
   setCurrentPage: (page: string) => void;
 }) {
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
   return (
     <div className="flex-shrink-0 flex flex-col  px-1 pb-2">
       <CustomSidePannelTopButton
@@ -22,7 +26,7 @@ export default function SideBarNavigation({
         <CustomSidePannelTopButton
           buttonText="Search chats"
           icon={<Search />}
-          onClick={() => setCurrentPage("chat")}
+          onClick={() => setIsSearchOpen(true)}
         />
 
         <CustomSidePannelTopButton
@@ -51,6 +55,11 @@ export default function SideBarNavigation({
           onClick={() => setCurrentPage("chat")}
         />
       </div>
+
+      <SearchModal 
+        open={isSearchOpen} 
+        onOpenChange={setIsSearchOpen} 
+      />
     </div>
   );
 }

@@ -29,7 +29,7 @@ export default function CustomSidePannelTopButton({
           {buttonText && <span className="text-sm">{buttonText}</span>}
         </span> 
         {hovered && (
-          <span className="text-sm text-gray-400">Ctrl + Shift + O</span>
+          <span className="text-sm text-gray-400">Ctrl + K</span>
         )}
       </div>
     </Button>

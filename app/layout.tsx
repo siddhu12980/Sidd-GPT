@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { SearchProvider } from "@/components/GlobalSearchShortcut";
 
 export const metadata: Metadata = {
   title: "ChatGPT",
@@ -8,14 +9,7 @@ export const metadata: Metadata = {
   generator: "sidd.dev",
 };
 
-import {
-  ClerkProvider,
-  SignInButton,
-  SignUpButton,
-  SignedIn,
-  SignedOut,
-  UserButton,
-} from "@clerk/nextjs";
+import { ClerkProvider } from "@clerk/nextjs";
 
 export default function RootLayout({
   children,
@@ -26,7 +20,9 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body>
-          <Providers>{children}</Providers>
+          <Providers>
+            <SearchProvider>{children}</SearchProvider>
+          </Providers>
         </body>
       </html>
     </ClerkProvider>

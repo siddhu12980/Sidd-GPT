@@ -16,15 +16,78 @@ export interface Conversation {
   updatedAt: string;
 }
 
+// Individual attachment interface
+export interface Attachment {
+  type: "image" | "pdf" | "file";
+  url: string;
+  fileName: string;
+  fileType: string; // MIME type
+  fileSize?: number; // Size in bytes
+  uploadedAt?: string;
+}
+
+// Attachment summary interface
+export interface AttachmentSummary {
+  imageCount: number;
+  pdfCount: number;
+  totalSize: number;
+}
+
 export interface Message {
   _id?: string;
-  role: "user" | "assistant" | "system" | "data";
+  role: "user" | "assistant";
   content: string;
-  type?: string;
+  sessionId: string;
+  type?: "text" | "image" | "file";
+  createdAt?: Date;
+  
+  // Legacy single file support (for backward compatibility)
   fileUrl?: string;
   fileName?: string;
   fileType?: string;
-  createdAt?: string;
+  data?: string; // Legacy field for single file URL
+  
+  // NEW: Multiple attachments support using simple arrays
+  attachmentUrls?: string[];     // Array of file URLs
+  attachmentTypes?: string[];    // Array of file types: 'image', 'pdf', 'file'
+  
+  // Computed fields (populated by backend)
+  attachmentCount?: number;
+  hasMultipleAttachments?: boolean;
+}
+
+export interface ChatRequest {
+  messages: Message[];
+  userId?: string;
+  sessionId?: string;
+  data?: string; // Legacy single file URL
+  
+  // NEW: Multiple attachments
+  attachmentUrls?: string[];
+  attachmentTypes?: string[];
+}
+
+export interface ChatResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export interface UploadResponse {
+  success: boolean;
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+  error?: string;
+}
+
+// Helper types for frontend
+export interface AttachmentInfo {
+  url: string;
+  type: 'image' | 'pdf' | 'file';
+  name: string;
+  size?: number;
 }
 
 export interface CreateConversationRequest {
@@ -34,10 +97,15 @@ export interface CreateConversationRequest {
 export interface CreateMessageRequest {
   role: "user" | "assistant" | "system" | "data";
   content: string;
-  type?: string;
+  type?: "text" | "image" | "file" | "mixed";
+  
+  // Legacy single file fields (for backward compatibility)
   fileUrl?: string;
   fileName?: string;
   fileType?: string;
+  
+  // New multiple attachments support
+  attachments?: Attachment[];
 }
 
 export interface GenerateTitleRequest {

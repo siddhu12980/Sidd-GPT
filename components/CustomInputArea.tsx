@@ -44,6 +44,10 @@ export default function CustomInputArea({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
+    // NEW: Multiple attachments support
+    attachmentUrls?: string[];
+    attachmentTypes?: string[];
+    attachmentNames?: string[];
   }) => void;
   isLoading: boolean;
   stop?: () => void;
@@ -52,18 +56,30 @@ export default function CustomInputArea({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+
+  // NEW: Support for multiple pending files
+  const [pendingFiles, setPendingFiles] = useState<
+    {
+      url: string;
+      name: string;
+      type: string;
+    }[]
+  >([]);
+
+  // LEGACY: Keep single file support for backward compatibility
   const [pendingFile, setPendingFile] = useState<{
     url: string;
     name: string;
     type: string;
   } | null>(null);
+
   const { user } = useUser();
   const [showAuthPopover, setShowAuthPopover] = useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (input.trim() || pendingFile) {
+      if (input.trim() || pendingFile || pendingFiles.length > 0) {
         sendMessage();
       }
     }
@@ -71,38 +87,51 @@ export default function CustomInputArea({
 
   const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (input.trim() || pendingFile) {
+    if (input.trim() || pendingFile || pendingFiles.length > 0) {
       sendMessage();
     }
   };
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
     setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
+
     try {
-      let uploadApi = "/api/upload-file";
-    
-      const res = await fetch(uploadApi, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
+      // Support multiple files
+      const uploadPromises = Array.from(files).map(async (file) => {
+        const formData = new FormData();
+        formData.append("file", file);
 
-      console.log("uploading file", data);
-
-      if (data.success) {
-        setPendingFile({
-          url: data.result.secure_url,
-          name: file.name,
-          type: file.type,
+        const res = await fetch("/api/upload-file", {
+          method: "POST",
+          body: formData,
         });
+        const data = await res.json();
+
+        if (data.success) {
+          return {
+            url: data.result.secure_url,
+            name: file.name,
+            type: file.type,
+          };
+        } else {
+          throw new Error(data.error || "Upload failed");
+        }
+      });
+
+      const uploadedFiles = await Promise.all(uploadPromises);
+
+      // If only one file, use legacy single file state for backward compatibility
+      if (uploadedFiles.length === 1) {
+        setPendingFile(uploadedFiles[0]);
       } else {
-        alert(data.error || "Upload failed");
+        // Multiple files - use new multiple files state
+        setPendingFiles(uploadedFiles);
       }
     } catch (err) {
+      console.error("Upload failed:", err);
       alert("Upload failed");
     } finally {
       setUploading(false);
@@ -114,9 +143,40 @@ export default function CustomInputArea({
     setPendingFile(null);
   }
 
+  // NEW: Function to remove a specific file from multiple files
+  function removePendingFileAt(index: number) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  // NEW: Function to clear all pending files
+  function clearAllPendingFiles() {
+    setPendingFiles([]);
+    setPendingFile(null);
+  }
+
   function sendMessage() {
-    if (!pendingFile && !input.trim()) return;
-    if (pendingFile) {
+    if (!pendingFile && !input.trim() && pendingFiles.length === 0) return;
+
+    // NEW: Handle multiple attachments
+    if (pendingFiles.length > 0) {
+      console.log("🎯 Sending multiple attachments:", pendingFiles.length);
+
+      handleSendButtonClick({
+        content: input.trim() || `Analyze these ${pendingFiles.length} files`,
+        role: "user",
+        type: "mixed",
+        attachmentUrls: pendingFiles.map((f) => f.url),
+        attachmentTypes: pendingFiles.map((f) =>
+          f.type.startsWith("image/") ? "image" : "pdf"
+        ),
+        attachmentNames: pendingFiles.map((f) => f.name),
+      });
+
+      clearAllPendingFiles();
+      setInput("");
+    }
+    // LEGACY: Handle single file
+    else if (pendingFile) {
       // If image
       if (pendingFile.type.startsWith("image/")) {
         handleSendButtonClick({
@@ -140,7 +200,9 @@ export default function CustomInputArea({
       }
       setPendingFile(null);
       setInput("");
-    } else if (input.trim()) {
+    }
+    // Text only
+    else if (input.trim()) {
       handleSendButtonClick({
         content: input.trim(),
         role: "user",
@@ -156,13 +218,50 @@ export default function CustomInputArea({
       <input
         type="file"
         accept="image/*,.pdf,.doc,.docx,.txt,.csv"
+        multiple
         style={{ display: "none" }}
         ref={fileInputRef}
         onChange={handleFileChange}
       />
       <div className="">
-        {/* File/Image Preview */}
-        {pendingFile && (
+        {/* NEW: Multiple Files Preview */}
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {pendingFiles.map((file, index) => (
+              <div
+                key={index}
+                className="flex items-center gap-2 bg-[#232323] rounded-xl p-2 relative"
+              >
+                {file.type.startsWith("image/") ? (
+                  <img
+                    src={file.url}
+                    alt="preview"
+                    className="w-12 h-12 object-cover rounded-lg"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-6 h-6 text-blue-400" />
+                    <span className="text-sm text-white max-w-[80px] truncate">
+                      {file.name}
+                    </span>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className="absolute -top-1 -right-1 bg-black rounded-full p-1 hover:bg-gray-700"
+                  onClick={() => removePendingFileAt(index)}
+                  aria-label="Remove file"
+                >
+                  <X className="w-3 h-3 text-white" />
+                </button>
+              </div>
+            ))}
+         
+          </div>
+        )}
+
+        {/* LEGACY: Single File Preview */}
+        {pendingFile && pendingFiles.length === 0 && (
           <div className="flex items-center gap-3 mb-2 bg-[#232323] rounded-xl p-2 relative w-fit">
             {pendingFile.type.startsWith("image/") ? (
               <img
@@ -196,7 +295,11 @@ export default function CustomInputArea({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                pendingFile ? "Ask anything about this..." : "Ask anything"
+                pendingFiles.length > 0
+                  ? `Ask about these ${pendingFiles.length} files...`
+                  : pendingFile
+                  ? "Ask anything about this..."
+                  : "Ask anything"
               }
               className="input-box w-full placeholder:text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus-visible:ring-0 focus-visible:ring-offset-0 text-base p-0 mb-3"
               disabled={isLoading || uploading}
@@ -355,7 +458,11 @@ export default function CustomInputArea({
                     size="icon"
                     className="w-7 h-7 text-gray-200 hover:text-white hover:bg-gray-600 rounded-full"
                     disabled={
-                      (!input.trim() && !pendingFile) || isLoading || uploading
+                      (!input.trim() &&
+                        !pendingFile &&
+                        pendingFiles.length === 0) ||
+                      isLoading ||
+                      uploading
                     }
                   >
                     <Send className="w-5 h-5" />

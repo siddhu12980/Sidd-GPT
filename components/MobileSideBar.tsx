@@ -7,6 +7,7 @@ import { Search, Sparkles } from "lucide-react";
 import { BookOpen, Edit, Brain } from "lucide-react";
 import { PanelLeft } from "lucide-react";
 import { Logo } from "./logo";
+import { useSearch } from "./GlobalSearchShortcut";
 
 interface Conversation {
   _id: string;
@@ -28,6 +29,7 @@ export default function MobileSidebar({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { setIsSearchOpen } = useSearch();
 
   useEffect(() => {
     fetchConversations();
@@ -55,6 +57,11 @@ export default function MobileSidebar({
     setSidebarOpen(false);
     setCurrentPage("chat");
     router.push(`/chat/${conversationId}`);
+  };
+
+  const handleSearchClick = () => {
+    setSidebarOpen(false); // Close the sidebar first
+    setIsSearchOpen(true); // Then open the search
   };
 
   return (
@@ -92,6 +99,7 @@ export default function MobileSidebar({
             <Button
               variant="ghost"
               className="w-full justify-start gap-3 text-gray-300 hover:text-white hover:bg-gray-700 h-9 px-3 rounded-lg"
+              onClick={handleSearchClick}
             >
               <Search className="w-4 h-4" />
               <span className="text-sm">Search chats</span>

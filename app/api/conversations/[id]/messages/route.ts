@@ -33,13 +33,15 @@ export async function POST(
       { status: 404 }
     );
 
-  const { role, content, type, fileUrl, fileName, fileType } = await req.json();
+  const { role, content, type, fileUrl, fileName, fileType, attachments } =
+    await req.json();
 
   console.log("=== Message Creation Debug ===");
   console.log("role", role);
   console.log("content", content);
   console.log("type", type);
-  console.log("Full request body:", { role, content, type });
+  console.log("attachments", attachments);
+  console.log("Full request body:", { role, content, type, attachments });
 
   if (!role || !content)
     return NextResponse.json(
@@ -57,6 +59,8 @@ export async function POST(
     fileUrl: fileUrl,
     fileName: fileName,
     fileType: fileType,
+    // NEW: Include attachments array for multiple files
+    ...(attachments && attachments.length > 0 && { attachments }),
   };
   console.log("Message data to save:", messageData);
 

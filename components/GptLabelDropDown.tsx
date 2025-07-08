@@ -5,19 +5,20 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Check, ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function GptLabelDropDown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button
-          className="flex items-center gap-1 text-lg font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500 bg-transparent"
-          aria-haspopup="menu"
+        <Button
+          variant="ghost"
+          className="flex items-center gap-1 text-lg font-medium hover:bg-transparent focus:ring-0 focus:ring-offset-0 bg-transparent"
           aria-label="ChatGPT options"
         >
           ChatGPT
           <ChevronDown className="w-4 h-4 text-gray-400" />
-        </button>
+        </Button>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
@@ -33,9 +34,13 @@ export default function GptLabelDropDown() {
             </span>
           </div>
 
-          <button className="ml-4 px-3 py-1 bg-[#353740] hover:bg-[#40414f] text-white text-xs rounded-md font-medium focus:outline-none">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="ml-4 bg-[#353740] hover:bg-[#40414f] text-white text-xs"
+          >
             Upgrade
-          </button>
+          </Button>
         </DropdownMenuItem>
 
         <DropdownMenuItem className="flex items-center gap-3 px-4 py-2 cursor-pointer data-[highlighted]:bg-[#d9d9d9]/20">

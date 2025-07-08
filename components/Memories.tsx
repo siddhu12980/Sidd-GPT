@@ -50,9 +50,9 @@ export default function Memories() {
   };
 
   return (
-    <div className="flex flex-col h-full w-full bg-[#212121] text-white">
-      <div className="flex-1 flex justify-center">
-        <div className="w-full max-w-4xl bg-[#212121]">
+    <div className="flex flex-col h-screen w-full bg-[#212121] text-white overflow-hidden ">
+      <div className="flex-1 flex justify-center min-h-0">
+        <div className="w-full max-w-4xl bg-[#212121] flex flex-col h-full">
           {/* Header */}
           <div className="flex-shrink-0 border-b border-[#424242] px-4 py-3 md:px-6 md:py-4">
             <h2 className="text-lg font-semibold text-[#ececec] md:text-xl">
@@ -95,8 +95,8 @@ export default function Memories() {
             </div>
           </div>
 
-          {/* Memories List */}
-          <div className="flex-1 overflow-y-auto">
+          {/* ✅ FIXED: Memories List with proper scroll handling */}
+          <div className="flex-1 overflow-y-auto min-h-0">
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-[#10a37f]" />
@@ -117,11 +117,11 @@ export default function Memories() {
                 </p>
               </div>
             ) : (
-              <div className="p-4 space-y-3 md:p-6 md:space-y-4">
+              <div className="p-4 space-y-3 md:p-6 md:space-y-4 no-scrollbar ">
                 {memories.map((memory) => (
                   <div
                     key={memory.id}
-                    className="bg-[#2f2f2f] border border-[#424242] rounded-lg p-4 hover:border-[#565869] hover:bg-[#343541] transition-all duration-200"
+                    className="bg-[#2f2f2f] no-scrollbar border border-[#424242] rounded-lg p-4 hover:border-[#565869] hover:bg-[#343541] transition-all duration-200"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">

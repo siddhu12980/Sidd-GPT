@@ -21,25 +21,25 @@ const usageSchema = new mongoose.Schema({
   requestsMade: { type: Number, default: 0 },
   modelUsed: { type: String, required: true },
   cost: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
 usageSchema.index({ userId: 1, date: 1 });
 
-const Usage = mongoose.models.Usage || mongoose.model('Usage', usageSchema);
+const Usage = mongoose.models.Usage || mongoose.model("Usage", usageSchema);
 
 // Helper function to track usage directly in database
 async function trackUsage(
-  userId: string, 
-  tokensUsed: number, 
-  modelUsed: string, 
+  userId: string,
+  tokensUsed: number,
+  modelUsed: string,
   cost: number
 ) {
   try {
-    const date = new Date().toISOString().split('T')[0];
-    
+    const date = new Date().toISOString().split("T")[0];
+
     const existingUsage = await Usage.findOne({ userId, date, modelUsed });
-    
+
     if (existingUsage) {
       existingUsage.tokensUsed += tokensUsed;
       existingUsage.requestsMade += 1;
@@ -52,39 +52,77 @@ async function trackUsage(
         tokensUsed,
         requestsMade: 1,
         modelUsed,
-        cost
+        cost,
       });
     }
-    
-    console.log(`✅ Usage tracked: ${tokensUsed} tokens, $${cost.toFixed(6)} for user ${userId}`);
-  } catch (error) {
-    console.error('Error tracking usage:', error);
-  }
+  } catch (error) {}
 }
 
-// Helper function to handle PDF processing
+// Helper function to process PDF files
 async function processPdfFile(fileUrl: string) {
   try {
-    console.log('📥 Fetching PDF from:', fileUrl);
     const response = await fetch(fileUrl);
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch PDF: ${response.status}`);
     }
-    
+
     const pdfBuffer = await response.arrayBuffer();
-    console.log('✅ PDF fetched successfully, size:', pdfBuffer.byteLength, 'bytes');
-    
+
     return {
-      type: 'file',
-      data: Buffer.from(pdfBuffer),
-      mimeType: 'application/pdf',
-      filename: fileUrl.split('/').pop() || 'document.pdf'
+      type: "file",
+      data: new Uint8Array(pdfBuffer),
+      mimeType: "application/pdf",
+      filename: fileUrl.split("/").pop() || "document.pdf",
     };
   } catch (error) {
-    console.error('Error processing PDF:', error);
     throw error;
   }
+}
+
+// NEW: Helper function to process multiple attachments using multimodal format
+async function processMultipleAttachments(
+  attachmentUrls: string[],
+  attachmentTypes: string[]
+) {
+  const multimodalContent = [];
+  let processedCount = 0;
+
+  for (let i = 0; i < attachmentUrls.length; i++) {
+    try {
+      const url = attachmentUrls[i];
+      const type = attachmentTypes[i] || "file";
+
+      if (
+        type === "image" ||
+        url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i)
+      ) {
+        multimodalContent.push({
+          type: "image",
+          image: url,
+        });
+        processedCount++;
+      } else if (type === "pdf" || url.match(/\.pdf$/i)) {
+        const pdfContent = await processPdfFile(url);
+        multimodalContent.push(pdfContent);
+        processedCount++;
+      } else {
+        // Try to handle as file
+        multimodalContent.push({
+          type: "file",
+          file: new URL(url),
+        });
+        processedCount++;
+      }
+    } catch (error) {
+      console.error(
+        `❌ Failed to process ${attachmentUrls[i]}:`,
+        (error as Error).message
+      );
+    }
+  }
+
+  return multimodalContent;
 }
 
 export async function POST(req: Request) {
@@ -106,14 +144,21 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { messages, userId, data, sessionId } = body;
+
+    const {
+      messages,
+      userId,
+      data,
+      sessionId,
+      attachmentUrls,
+      attachmentTypes,
+    } = body;
 
     if (!messages || !Array.isArray(messages)) {
       return new Response("Invalid messages format", { status: 400 });
     }
 
-    const model = "gpt-4o" as ModelName; // Using gpt-4o-mini as shown in the streamText calls
-    
+    const model = "gpt-4o" as ModelName;
     const tokenManager = new TokenManager(model);
 
     const normalizedMessages = messages.map((msg: any) => ({
@@ -131,27 +176,22 @@ export async function POST(req: Request) {
       messages.splice(0, messages.length, ...trimmed);
     }
 
-    // Calculate input tokens for usage tracking
     const inputTokens = tokenManager.countMessageTokens(normalizedMessages);
-    console.log("=== Token Management Debug ===");
-    console.log("Model:", model);
-    console.log("Input tokens:", inputTokens);
-    console.log("Original messages count:", messages.length);
-    console.log("Token check result:", tokenCheck);
-    console.log("=== End Token Management Debug ===");
 
-    // Use provided userId or fallback to a default
+    // NEW: Log multiple attachments
+    if (attachmentUrls?.length > 0) {
+      attachmentUrls.forEach((url: string, i: number) => {
+        const type = attachmentTypes?.[i] || "auto-detect";
+      });
+    }
+
     const currentUserId = userId || "default-user";
 
-    // Get the latest user message for memory retrieval
     const latestUserMessage = messages
       .filter((msg) => msg.role === "user")
       .pop();
 
-    console.log("latestUserMessage", latestUserMessage);
-
     let enhancedSystemPrompt = `
-      
       You are a highly capable and trustworthy AI assistant. Use the memory context, including prior user conversations, to maintain continuity, understand intent, and provide relevant, personalized assistance.
       
       Your role is to deliver accurate, thoughtful, and context-aware responses across a range of tasks—technical, creative, or general. Ask clarifying questions when needed. If unsure, admit uncertainty rather than guessing.
@@ -159,7 +199,6 @@ export async function POST(req: Request) {
       You remain helpful, respectful, and professional. Avoid unsafe or misleading outputs. Always prioritize solving the user's problem effectively based on their goals and the evolving context of the conversation.
       `;
 
-    // Retrieve relevant memories if we have a user message
     if (latestUserMessage && typeof latestUserMessage.content === "string") {
       try {
         const memories = await mem0Service.getRelevantMemories(
@@ -168,18 +207,77 @@ export async function POST(req: Request) {
           5
         );
 
-        console.log("Revelant Memories", memories);
-
         if (memories && memories.length > 0) {
           const memoryContext = memories.join("\n\n");
           enhancedSystemPrompt = `${memoryContext}\n\n  ${enhancedSystemPrompt}`;
         }
       } catch (memoryError) {
-        console.log("Memory Failed", memoryError);
+        // Continue without storing memory if it fails
       }
     }
 
-    // --- Enhanced Multimodal Pattern (image/file/PDF support) ---
+    // NEW: Handle multiple attachments using multimodal format
+    if (attachmentUrls && attachmentUrls.length > 0) {
+      try {
+        const lastMessage = messages[messages.length - 1];
+        const baseContent =
+          lastMessage?.content || "Please analyze these attached files.";
+
+        // Build multimodal content array
+        const multimodalContent: any[] = [{ type: "text", text: baseContent }];
+
+        // Process all attachments
+        const attachmentContent = await processMultipleAttachments(
+          attachmentUrls,
+          attachmentTypes || []
+        );
+        multimodalContent.push(...attachmentContent);
+
+        const initialMessages = messages.slice(0, -1);
+
+        const result = await streamText({
+          model: openai("gpt-4o"),
+          system: enhancedSystemPrompt,
+          messages: [
+            ...initialMessages,
+            {
+              role: "user",
+              content: multimodalContent,
+            },
+          ],
+        });
+
+        // Track usage for multiple attachments
+        const finalInputTokens = tokenManager.countMessageTokens([
+          ...initialMessages,
+          { role: "user", content: JSON.stringify(multimodalContent) },
+        ]);
+
+        const hasPdf = attachmentUrls.some(
+          (url: string, i: number) =>
+            attachmentTypes?.[i] === "pdf" || url.match(/\.pdf$/i)
+        );
+        const estimatedOutputTokens = hasPdf ? 1500 : 800;
+
+        const totalTokens = finalInputTokens + estimatedOutputTokens;
+        const cost = tokenManager.calculateCost(
+          finalInputTokens,
+          estimatedOutputTokens
+        );
+
+        trackUsage(currentUserId, totalTokens, "gpt-4o", cost);
+
+        return result.toDataStreamResponse();
+      } catch (attachmentError) {
+        console.error(
+          "❌ Multiple attachments processing failed:",
+          attachmentError
+        );
+        // Fall through to legacy handling
+      }
+    }
+
+    // LEGACY: Handle single file attachments (backward compatibility)
     const lastMessage = messages[messages.length - 1];
     const fileUrl = lastMessage?.data || data;
     const content = lastMessage?.content || "";
@@ -202,17 +300,17 @@ export async function POST(req: Request) {
         if (isImage(fileUrl)) {
           multimodalContent.push({
             type: "text",
-            text: "What is in this image?"
+            text: "What is in this image?",
           });
         } else if (isPdf(fileUrl)) {
           multimodalContent.push({
             type: "text",
-            text: "Please analyze this PDF and tell me what it contains. Summarize the key points."
+            text: "Please analyze this PDF and tell me what it contains. Summarize the key points.",
           });
         } else {
           multimodalContent.push({
             type: "text",
-            text: "Analyze this file."
+            text: "Analyze this file.",
           });
         }
       }
@@ -220,13 +318,10 @@ export async function POST(req: Request) {
       if (isImage(fileUrl)) {
         multimodalContent.push({ type: "image", image: new URL(fileUrl) });
       } else if (isPdf(fileUrl)) {
-        console.log('🧪 Processing PDF with AI SDK...');
         try {
           const pdfContent = await processPdfFile(fileUrl);
           multimodalContent.push(pdfContent);
         } catch (pdfError) {
-          console.error('PDF processing failed:', pdfError);
-          // Fallback to treating as regular file
           multimodalContent.push({ type: "file", file: new URL(fileUrl) });
         }
       } else if (isDocument(fileUrl)) {
@@ -235,11 +330,8 @@ export async function POST(req: Request) {
 
       const initialMessages = messages.slice(0, -1);
 
-      // Use gpt-4o for file processing (especially PDFs) for better results
-      const fileModel = "gpt-4o";
-      
       const result = await streamText({
-        model: openai(fileModel),
+        model: openai("gpt-4o"),
         system: enhancedSystemPrompt,
         messages: [
           ...initialMessages,
@@ -250,32 +342,25 @@ export async function POST(req: Request) {
         ],
       });
 
-      // Track usage for multimodal request
+      // Track usage for legacy single file
       const finalInputTokens = tokenManager.countMessageTokens([
         ...initialMessages,
-        { role: "user", content: JSON.stringify(multimodalContent) }
+        { role: "user", content: JSON.stringify(multimodalContent) },
       ]);
-      
-      // For streaming responses, we'll estimate output tokens and track when response finishes
-      const estimatedOutputTokens = isPdf(fileUrl) ? 1000 : 500; // PDFs might need more tokens
-      const totalTokens = finalInputTokens + estimatedOutputTokens;
-      const cost = tokenManager.calculateCost(finalInputTokens, estimatedOutputTokens);
-      
-      console.log("=== Usage Tracking (Multimodal) ===");
-      console.log("File type:", isPdf(fileUrl) ? "PDF" : isImage(fileUrl) ? "Image" : "Document");
-      console.log("Model used:", fileModel);
-      console.log("Input tokens:", finalInputTokens);
-      console.log("Estimated output tokens:", estimatedOutputTokens);
-      console.log("Total tokens:", totalTokens);
-      console.log("Cost:", cost);
-      console.log("=== End Usage Tracking ===");
 
-      // Track usage asynchronously
-      trackUsage(currentUserId, totalTokens, fileModel, cost);
+      const estimatedOutputTokens = isPdf(fileUrl) ? 1000 : 500;
+      const totalTokens = finalInputTokens + estimatedOutputTokens;
+      const cost = tokenManager.calculateCost(
+        finalInputTokens,
+        estimatedOutputTokens
+      );
+
+      trackUsage(currentUserId, totalTokens, "gpt-4o", cost);
 
       return result.toDataStreamResponse();
     }
 
+    // STANDARD: Text-only messages
     let aiMessages = messages;
     if (
       messages.length > 0 &&
@@ -306,20 +391,15 @@ export async function POST(req: Request) {
       messages: aiMessages,
     });
 
-    // For standard text responses, track usage
+    // Track usage for standard text responses
     const finalInputTokens = tokenManager.countMessageTokens(aiMessages);
-    const estimatedOutputTokens = 500; // Reasonable estimate for responses
+    const estimatedOutputTokens = 500;
     const totalTokens = finalInputTokens + estimatedOutputTokens;
-    const cost = tokenManager.calculateCost(finalInputTokens, estimatedOutputTokens);
-    
-    console.log("=== Usage Tracking (Standard) ===");
-    console.log("Input tokens:", finalInputTokens);
-    console.log("Estimated output tokens:", estimatedOutputTokens);
-    console.log("Total tokens:", totalTokens);
-    console.log("Cost:", cost);
-    console.log("=== End Usage Tracking ===");
+    const cost = tokenManager.calculateCost(
+      finalInputTokens,
+      estimatedOutputTokens
+    );
 
-    // Track usage asynchronously
     trackUsage(currentUserId, totalTokens, model, cost);
 
     const response = result.toDataStreamResponse();
@@ -354,5 +434,5 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  return new Response("Chat API with Mem0 integration and PDF support is running!");
+  return new Response("Chat API with multiple attachments support is running!");
 }
