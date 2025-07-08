@@ -54,3 +54,14 @@ next-env.d.ts
 /.clerk/
 
 /app/generated/prisma
+
+/scripts
+/scripts/pdf-to-text.js
+/scripts/pdf-to-text.ts
+/scripts/pdf-to-text.py
+/scripts/pdf-to-text.sh
+/scripts/pdf-to-text.bash
+/scripts/pdf-to-text.zsh
+/scripts/pdf-to-text.fish
+
+/scripts/*

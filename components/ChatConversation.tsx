@@ -351,8 +351,17 @@ export default function ChatConversation({
               ) : (
                 <>
                   {(() => {
+                    console.log("=== Message Rendering Debug ===");
+                    console.log("Message:", message);
+                    console.log("Message type:", message.type);
+                    console.log("Message fileUrl:", message.fileUrl);
+                    console.log("Message fileName:", message.fileName);
+                    console.log("Message fileType:", message.fileType);
+                    console.log("=== End Debug ===");
+                    
                     // If it's an image message with fileUrl, show the image and text
                     if (message.type === "image" && message.fileUrl) {
+                      console.log("🖼️ Rendering image message");
                       return (
                         <div className="flex flex-col items-end">
                           <img
@@ -371,6 +380,53 @@ export default function ChatConversation({
                         </div>
                       );
                     }
+                    
+                    // If it's a file message (PDF, DOC, etc.) with fileUrl, show file icon and text
+                    if (message.type === "file" && message.fileUrl) {
+                      console.log("📄 Rendering file message - this should be your PDF!");
+                      const isPdf = message.fileName?.toLowerCase().endsWith('.pdf') || message.fileType === 'application/pdf';
+                      const isDoc = message.fileName?.toLowerCase().match(/\.(doc|docx)$/) || message.fileType?.includes('word');
+                      console.log("isPdf:", isPdf, "isDoc:", isDoc);
+                      
+                      return (
+                        <div className="flex flex-col items-end">
+                          <div className="flex items-center gap-3 mb-2 bg-[#232323] rounded-xl p-3 max-w-xs">
+                            <div className="flex-shrink-0">
+                              {isPdf ? (
+                                <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                                  <span className="text-red-600 text-xl font-bold">📄</span>
+                                </div>
+                              ) : isDoc ? (
+                                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                  <span className="text-blue-600 text-xl font-bold">📝</span>
+                                </div>
+                              ) : (
+                                <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                                  <span className="text-gray-600 text-xl font-bold">📎</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white truncate">
+                                {message.fileName || "Document"}
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                {isPdf ? "PDF Document" : isDoc ? "Word Document" : "File"}
+                              </p>
+                            </div>
+                          </div>
+                          {(message.content ||
+                            (message.parts && message.parts[0]?.text)) && (
+                            <div className="prose prose-invert break-words px-4 py-3 rounded-2xl text-base max-w-[90%] bg-[#353740] text-white mt-1 hide-scrollbar">
+                              <span>
+                                {message.content || message.parts?.[0]?.text}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    
                     // If it's a temporary image message (type is image but no fileUrl), show only the image from content
                     if (
                       message.type === "image" &&
@@ -387,6 +443,7 @@ export default function ChatConversation({
                         </div>
                       );
                     }
+                    
                     // Fallback to your existing logic
                     const contentType = getContentType(message.content);
                     if (contentType === "image") {

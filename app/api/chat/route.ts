@@ -62,6 +62,31 @@ async function trackUsage(
   }
 }
 
+// Helper function to handle PDF processing
+async function processPdfFile(fileUrl: string) {
+  try {
+    console.log('📥 Fetching PDF from:', fileUrl);
+    const response = await fetch(fileUrl);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch PDF: ${response.status}`);
+    }
+    
+    const pdfBuffer = await response.arrayBuffer();
+    console.log('✅ PDF fetched successfully, size:', pdfBuffer.byteLength, 'bytes');
+    
+    return {
+      type: 'file',
+      data: Buffer.from(pdfBuffer),
+      mimeType: 'application/pdf',
+      filename: fileUrl.split('/').pop() || 'document.pdf'
+    };
+  } catch (error) {
+    console.error('Error processing PDF:', error);
+    throw error;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const rateLimitResult = await chatRateLimiter(req as any);
@@ -87,7 +112,7 @@ export async function POST(req: Request) {
       return new Response("Invalid messages format", { status: 400 });
     }
 
-    const model = "gpt-4o-mini" as ModelName; // Using gpt-4o-mini as shown in the streamText calls
+    const model = "gpt-4o" as ModelName; // Using gpt-4o-mini as shown in the streamText calls
     
     const tokenManager = new TokenManager(model);
 
@@ -154,7 +179,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // --- Enhanced Multimodal Pattern (image/file support) ---
+    // --- Enhanced Multimodal Pattern (image/file/PDF support) ---
     const lastMessage = messages[messages.length - 1];
     const fileUrl = lastMessage?.data || data;
     const content = lastMessage?.content || "";
@@ -163,7 +188,10 @@ export async function POST(req: Request) {
       return url && url.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i);
     }
     function isDocument(url: string) {
-      return url && url.match(/\.(pdf|docx?|txt|csv|xlsx?|ppt|pptx|zip|rar)$/i);
+      return url && url.match(/\.(docx?|txt|csv|xlsx?|ppt|pptx|zip|rar)$/i);
+    }
+    function isPdf(url: string) {
+      return url && url.match(/\.pdf$/i);
     }
 
     if (fileUrl) {
@@ -171,22 +199,47 @@ export async function POST(req: Request) {
       if (content) {
         multimodalContent.push({ type: "text", text: content });
       } else {
-        multimodalContent.push({
-          type: "text",
-          text: isImage(fileUrl)
-            ? "What is in this image?"
-            : "Analyze this file.",
-        });
+        if (isImage(fileUrl)) {
+          multimodalContent.push({
+            type: "text",
+            text: "What is in this image?"
+          });
+        } else if (isPdf(fileUrl)) {
+          multimodalContent.push({
+            type: "text",
+            text: "Please analyze this PDF and tell me what it contains. Summarize the key points."
+          });
+        } else {
+          multimodalContent.push({
+            type: "text",
+            text: "Analyze this file."
+          });
+        }
       }
+
       if (isImage(fileUrl)) {
         multimodalContent.push({ type: "image", image: new URL(fileUrl) });
+      } else if (isPdf(fileUrl)) {
+        console.log('🧪 Processing PDF with AI SDK...');
+        try {
+          const pdfContent = await processPdfFile(fileUrl);
+          multimodalContent.push(pdfContent);
+        } catch (pdfError) {
+          console.error('PDF processing failed:', pdfError);
+          // Fallback to treating as regular file
+          multimodalContent.push({ type: "file", file: new URL(fileUrl) });
+        }
       } else if (isDocument(fileUrl)) {
         multimodalContent.push({ type: "file", file: new URL(fileUrl) });
       }
+
       const initialMessages = messages.slice(0, -1);
 
+      // Use gpt-4o for file processing (especially PDFs) for better results
+      const fileModel = "gpt-4o";
+      
       const result = await streamText({
-        model: openai("gpt-4o-mini"),
+        model: openai(fileModel),
         system: enhancedSystemPrompt,
         messages: [
           ...initialMessages,
@@ -204,11 +257,13 @@ export async function POST(req: Request) {
       ]);
       
       // For streaming responses, we'll estimate output tokens and track when response finishes
-      const estimatedOutputTokens = 500; // Reasonable estimate for responses
+      const estimatedOutputTokens = isPdf(fileUrl) ? 1000 : 500; // PDFs might need more tokens
       const totalTokens = finalInputTokens + estimatedOutputTokens;
       const cost = tokenManager.calculateCost(finalInputTokens, estimatedOutputTokens);
       
       console.log("=== Usage Tracking (Multimodal) ===");
+      console.log("File type:", isPdf(fileUrl) ? "PDF" : isImage(fileUrl) ? "Image" : "Document");
+      console.log("Model used:", fileModel);
       console.log("Input tokens:", finalInputTokens);
       console.log("Estimated output tokens:", estimatedOutputTokens);
       console.log("Total tokens:", totalTokens);
@@ -216,7 +271,7 @@ export async function POST(req: Request) {
       console.log("=== End Usage Tracking ===");
 
       // Track usage asynchronously
-      trackUsage(currentUserId, totalTokens, model, cost);
+      trackUsage(currentUserId, totalTokens, fileModel, cost);
 
       return result.toDataStreamResponse();
     }
@@ -246,7 +301,7 @@ export async function POST(req: Request) {
     }
 
     const result = await streamText({
-      model: openai("gpt-4o-mini"),
+      model: openai("gpt-4o"),
       system: enhancedSystemPrompt,
       messages: aiMessages,
     });
@@ -299,5 +354,5 @@ export async function POST(req: Request) {
 }
 
 export async function GET(req: Request) {
-  return new Response("Chat API with Mem0 integration is running!");
+  return new Response("Chat API with Mem0 integration and PDF support is running!");
 }
