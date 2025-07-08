@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { mem0Service } from "@/lib/mem0Service";
 
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = params;
-    const body = await request.json();
+    const { id } = await params;
+
+    const body = await req.json();
     const { userId } = body;
 
     if (!userId) {
@@ -37,4 +38,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-} 
+}
