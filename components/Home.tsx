@@ -21,8 +21,6 @@ import {
 } from "lucide-react";
 
 import PricingPage from "@/app/pricing/page";
-import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 
 import { Logo } from "@/components/logo";
 import MobileSidebar from "@/components/MobileSideBar";
@@ -30,7 +28,6 @@ import CustomInputArea from "@/components/CustomInputArea";
 import PlusIcon from "@/components/PlusIcon";
 import ChatHistory from "@/components/ChatHistory";
 import { useUser } from "@clerk/nextjs";
-// import { useRouter } from "next/navigation";
 
 // Import the new hooks
 import { useCreateConversation } from "@/hooks/useConversations";
@@ -75,61 +72,89 @@ export default function Home() {
     console.log("isStale", isStale);
     console.log("conversationsError", conversationsError);
 
-    // Use Vercel AI SDK's useChat hook with new v5 API
-    const { messages, sendMessage, status } = useChat({
-      transport: new DefaultChatTransport({
-        api: "/api/chat",
-      }),
-    });
+    // Home page doesn't need useChat since we redirect to dedicated chat pages
+    const [isLoading, setIsLoading] = useState(false);
 
-    // Custom send handler to create conversation on first message
-    const handleSend = async () => {
-      if (!input.trim()) return;
-      if (messages.length === 0) {
-        try {
-          const data = await createConversationMutation.mutateAsync({
-            title: "New Chat",
-          });
-          if (data._id) {
-            await fetch(`/api/conversations/${data._id}/messages`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                role: "user",
-                content: input.trim(),
-              }),
-            });
-
-            // router.push(`/chat/${data._id}`);
-            return;
-          }
-        } catch (error) {
-          console.error("Failed to create conversation:", error);
-        }
-      }
-
-      sendMessage({ text: input.trim() });
-      setInput("");
-    };
-
-    // Wrapper function for CustomInputArea compatibility
-    const handleMessage = (message: {
+    // Complete handler for creating conversation and redirecting to chat page
+    const handleMessage = async (message: {
       content: string;
       role: "user";
       type?: string;
+      fileUrl?: string;
+      fileName?: string;
+      fileType?: string;
+      attachmentUrls?: string[];
+      attachmentTypes?: string[];
+      attachmentNames?: string[];
     }) => {
-      // For Home page, we only handle text messages and create new conversations
-      if (message.type === "text" || !message.type) {
-        handleSend();
+      // Prevent multiple submissions
+      if (isLoading) return;
+
+      setIsLoading(true);
+
+      try {
+        console.log("Home: Creating new conversation with message:", message);
+
+        // Create new conversation
+        const conversationData = await createConversationMutation.mutateAsync({
+          title: "New Chat",
+        });
+
+        if (!conversationData._id) {
+          throw new Error("Failed to create conversation");
+        }
+
+        console.log("Home: Created conversation:", conversationData._id);
+
+        // Send the message to the new conversation
+        const messageResponse = await fetch(
+          `/api/conversations/${conversationData._id}/messages`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              role: message.role,
+              content: message.content,
+              type: message.type || "text",
+              fileUrl: message.fileUrl,
+              fileName: message.fileName,
+              fileType: message.fileType,
+              // Map the attachmentUrls, attachmentTypes, attachmentNames to the attachments array
+              attachments: message.attachmentUrls?.map((url, index) => ({
+                url: url,
+                fileName: message.attachmentNames?.[index] || "unknown",
+                fileType:
+                  message.attachmentTypes?.[index] ||
+                  "application/octet-stream",
+                type:
+                  message.attachmentTypes?.[index] === "image"
+                    ? "image"
+                    : message.attachmentTypes?.[index] === "pdf"
+                    ? "pdf"
+                    : "file",
+              })),
+            }),
+          }
+        );
+
+        if (!messageResponse.ok) {
+          throw new Error("Failed to send message");
+        }
+
+        console.log("Home: Message sent successfully, redirecting to chat");
+        console.log("Home: Redirecting to:", `/chat/${conversationData._id}`);
+
+        // Immediate redirect
+        router.push(`/chat/${conversationData._id}`);
+      } catch (error) {
+        console.error("Failed to create conversation and send message:", error);
+        alert("Failed to start new chat. Please try again.");
+        setIsLoading(false);
       }
     };
 
     console.log("user", user);
-    console.log("messages", messages);
-    console.log("status", status);
-
-    // Check if loading (equivalent to old isLoading)
-    const isLoading = status === "submitted" || status === "streaming";
+    console.log("isLoading", isLoading);
 
     // Use the mobile hook properly with error handling
     const isMobileFromHook = useIsMobile();
@@ -341,39 +366,23 @@ export default function Home() {
           {/* Chat Area */}
           {currentPage !== "memory" ? (
             <div className="flex-1 flex flex-col items-center justify-center px-4 pb-40 relative">
-              {messages.length === 0 ? (
-                <>
-                  <div className="text-center mb-8">
-                    <h1
-                      className={`font-normal text-white ${
-                        isMobile ? "text-2xl" : "text-3xl"
-                      }`}
-                    >
-                      Good to see you, sidd.
-                    </h1>
-                  </div>
+              <div className="text-center mb-8">
+                <h1
+                  className={`font-normal text-white ${
+                    isMobile ? "text-2xl" : "text-3xl"
+                  }`}
+                >
+                  Good to see you, sidd.
+                </h1>
+              </div>
 
-                  {/* Input Area */}
-                  <CustomInputArea
-                    input={input}
-                    setInput={setInput}
-                    handleSendButtonClick={handleSend}
-                    isLoading={isLoading}
-                  />
-                </>
-              ) : (
-                <div className="w-full max-w-4xl flex flex-col h-full">
-                  {/* Input Area */}
-                  <div className="flex-shrink-0">
-                    <CustomInputArea
-                      input={input}
-                      setInput={setInput}
-                      handleSendButtonClick={handleMessage}
-                      isLoading={isLoading}
-                    />
-                  </div>
-                </div>
-              )}
+              {/* Input Area */}
+              <CustomInputArea
+                input={input}
+                setInput={setInput}
+                handleSendButtonClick={handleMessage}
+                isLoading={isLoading}
+              />
             </div>
           ) : (
             <MemoriesPage />

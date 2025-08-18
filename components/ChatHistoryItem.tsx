@@ -3,15 +3,12 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./ui/button";
+import { Trash2, Archive, Edit2, Share2, MoreHorizontal } from "lucide-react";
 import {
-  MoreVertical,
-  Trash2,
-  Archive,
-  Edit2,
-  Share2,
-  MoreHorizontal,
-} from "lucide-react";
-import { useRouter } from "next/router";
+  useDeleteConversation,
+  useUpdateConversation,
+} from "@/hooks/useConversations";
+import { useRouter } from "next/navigation";
 
 interface Conversation {
   _id: string;
@@ -37,6 +34,11 @@ export default function ChatHistoryItem({
   const [newTitle, setNewTitle] = useState(conversation.title);
   const itemRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+
+  // TanStack Query hooks
+  const deleteConversationMutation = useDeleteConversation();
+  const updateConversationMutation = useUpdateConversation();
+  const router = useRouter();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -108,20 +110,26 @@ export default function ChatHistoryItem({
   };
 
   const handleRenameSave = async () => {
+    if (newTitle.trim() === "") {
+      alert("Title cannot be empty");
+      return;
+    }
+
+    if (newTitle.trim() === conversation.title) {
+      setIsRenaming(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`/api/conversations/${conversation._id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle }),
+      // Use TanStack Query mutation for proper cache management
+      await updateConversationMutation.mutateAsync({
+        id: conversation._id,
+        data: { title: newTitle.trim() },
       });
 
-      if (response.ok) {
-        setIsRenaming(false);
-        // Trigger a page refresh to update the conversation list
-        window.location.reload();
-      } else {
-        alert("Failed to rename conversation");
-      }
+      setIsRenaming(false);
+      // TanStack Query will automatically update the conversation list
+      // No need for manual refresh!
     } catch (error) {
       console.error("Rename failed:", error);
       alert("Failed to rename conversation");
@@ -152,16 +160,16 @@ export default function ChatHistoryItem({
     }
 
     try {
-      const response = await fetch(`/api/conversations/${conversation._id}`, {
-        method: "DELETE",
-      });
+      // Use TanStack Query mutation for proper cache management
+      await deleteConversationMutation.mutateAsync(conversation._id);
 
-      if (response.ok) {
-        // Trigger a page refresh to update the conversation list
-        window.location.href = "/";
-      } else {
-        alert("Failed to delete conversation");
+      // If this was the active conversation, redirect to home
+      if (isActive) {
+        router.push("/");
       }
+
+      // TanStack Query will automatically update the conversation list
+      // No need for manual refresh!
     } catch (error) {
       console.error("Delete failed:", error);
       alert("Failed to delete conversation");
@@ -177,13 +185,22 @@ export default function ChatHistoryItem({
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              if (e.key === "Enter" && !updateConversationMutation.isPending) {
                 handleRenameSave();
-              } else if (e.key === "Escape") {
+              } else if (
+                e.key === "Escape" &&
+                !updateConversationMutation.isPending
+              ) {
                 handleRenameCancel();
               }
             }}
-            className="flex-1 bg-transparent text-white text-sm border-none outline-none focus:outline-none"
+            disabled={updateConversationMutation.isPending}
+            className="flex-1 bg-transparent text-white text-sm border-none outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+            placeholder={
+              updateConversationMutation.isPending
+                ? "Saving..."
+                : "Enter new title"
+            }
             autoFocus
           />
         </div>
@@ -204,7 +221,11 @@ export default function ChatHistoryItem({
       {!isRenaming && (
         <button
           ref={btnRef}
-          className="opacity-0 cursor-pointer group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-600"
+          disabled={
+            updateConversationMutation.isPending ||
+            deleteConversationMutation.isPending
+          }
+          className="opacity-0 cursor-pointer group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
           aria-label="Show actions"
           onClick={() => setMenuOpen((v) => !v)}
           tabIndex={0}
@@ -252,10 +273,14 @@ export default function ChatHistoryItem({
               <div className="border-t border-[#353740] my-1" />
               <button
                 onClick={handleDelete}
-                className="flex items-center gap-2 px-4 py-2 hover:bg-[#353740] text-red-400 w-full text-left"
+                disabled={deleteConversationMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 hover:bg-[#353740] text-red-400 w-full text-left disabled:opacity-50 disabled:cursor-not-allowed"
                 data-menu-item
               >
-                <Trash2 className="w-4 h-4" /> Delete
+                <Trash2 className="w-4 h-4" />
+                {deleteConversationMutation.isPending
+                  ? "Deleting..."
+                  : "Delete"}
               </button>
             </div>,
             document.body

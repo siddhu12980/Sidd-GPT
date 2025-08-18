@@ -62,7 +62,7 @@ export default function ChatClient({
   const isMobile = useIsMobile();
 
   // Use the new AI SDK v5 properly
-  const { messages, sendMessage, regenerate, setMessages, stop, status } =
+  const { messages, sendMessage, setMessages, stop, status, regenerate } =
     useChat({
       id: sessionId,
       onFinish: async ({ message }) => {
@@ -108,7 +108,7 @@ export default function ChatClient({
               const dbId = String(savedMessage._id);
               setMessages((prevMessages) =>
                 prevMessages.map((msg) =>
-                  msg.id === message.id ? { ...msg, id: dbId , _id: dbId} : msg
+                  msg.id === message.id ? { ...msg, id: dbId, _id: dbId } : msg
                 )
               );
 
@@ -147,7 +147,6 @@ export default function ChatClient({
               })
               .join("\n");
 
-
             try {
               const { title } = await generateTitleMutation.mutateAsync({
                 sessionId,
@@ -178,15 +177,54 @@ export default function ChatClient({
     setMounted(true);
   }, []);
 
+  // Track if we've already triggered the auto-response to prevent duplicates
+  const autoTriggeredRef = useRef(false);
+
   useEffect(() => {
-    setMessages(initialMessages);
     // Mark all existing messages as already saved to prevent re-saving on reload
     initialMessages.forEach((msg: any) => {
       if (msg.id) {
         savedMessageIds.current.add(msg.id);
       }
     });
-  }, [initialMessages, setMessages]);
+
+    // Check if the last message is from user and trigger AI response if needed
+    // Only trigger once per session load
+    if (initialMessages.length > 0 && !autoTriggeredRef.current) {
+      const lastMessage = initialMessages[initialMessages.length - 1];
+      console.log("ChatClient: Last message:", lastMessage);
+
+      // If last message is from user, it means AI response is pending
+      if (lastMessage.role === "user") {
+        console.log(
+          "ChatClient: Last message is from user, removing from initial and triggering via sendMessage..."
+        );
+
+        // Mark as triggered to prevent multiple calls
+        autoTriggeredRef.current = true;
+
+        // Set all messages normally
+        setMessages(initialMessages);
+
+        // Small delay to ensure everything is initialized
+        setTimeout(() => {
+          console.log(
+            "ChatClient: Using reload to trigger AI response for last user message"
+          );
+
+          // Use regenerate() which will detect the last message is from user
+          // and automatically trigger AI response without adding duplicate message
+          regenerate();
+        }, 500);
+      } else {
+        // No pending user message, set all messages normally
+        setMessages(initialMessages);
+      }
+    } else {
+      // No auto-trigger needed, set all messages normally
+      setMessages(initialMessages);
+    }
+  }, [initialMessages, setMessages, regenerate]);
 
   useEffect(() => {
     // Only update sidebar state after component is mounted to prevent hydration mismatch
@@ -209,19 +247,17 @@ export default function ChatClient({
     // Find the user message that we need to resend (the one before the AI message we're regenerating)
     const userMessageIndex = messageIndex - 1;
     if (userMessageIndex < 0 || messages[userMessageIndex].role !== "user") {
-      console.error("No user message found before the AI message to regenerate");
+      console.error(
+        "No user message found before the AI message to regenerate"
+      );
       return;
     }
 
     const userMessage = messages[userMessageIndex];
-    console.log("User message to resend:", userMessage);
-
-    // 1. Delete messages from UI immediately for responsive UX (from the user message onwards)
-    const newMessages = messages.slice(0, userMessageIndex);
-    setMessages(newMessages);
+    console.log("User message to regenerate from:", userMessage);
 
     try {
-      // 2. Delete messages from backend (from the user message onwards, including target)
+      // 1. Delete messages from backend (from the user message onwards, including target)
       const deleteResponse = await fetch(
         `/api/conversations/${sessionId}/messages?after=${userMessage.id}&includeTarget=true`,
         {
@@ -237,48 +273,13 @@ export default function ChatClient({
         return;
       }
 
-      // 3. Extract the user message content and attachments to resend
-      let content = "";
-      let attachmentUrls: string[] = [];
-      let attachmentTypes: string[] = [];
-      let attachmentNames: string[] = [];
+      // 2. Update UI to show only messages up to (but not including) the user message
+      const newMessages = messages.slice(0, userMessageIndex);
+      setMessages([...newMessages, userMessage]); // Keep the user message
 
-      // Extract text content from parts
-      if (userMessage.parts && Array.isArray(userMessage.parts)) {
-        const textParts = userMessage.parts.filter((p: any) => p.type === "text");
-        content = textParts.map((p: any) => p.text || "").join(" ");
-
-        // Extract file attachments from parts
-        const fileParts = userMessage.parts.filter((p: any) => p.type === "file");
-        fileParts.forEach((part: any) => {
-          if (part.url) {
-            attachmentUrls.push(part.url);
-            attachmentNames.push(part.filename || "unknown");
-            // Determine type from mediaType
-            if (part.mediaType?.startsWith("image/")) {
-              attachmentTypes.push("image");
-            } else if (part.mediaType === "application/pdf") {
-              attachmentTypes.push("pdf");
-            } else {
-              attachmentTypes.push("file");
-            }
-          }
-        });
-      }
-
-      // 4. Resend the user message to trigger a new AI response
-      const messageToResend = {
-        content: content,
-        role: "user" as const,
-        type: attachmentUrls.length > 0 ? "mixed" : "text",
-        attachmentUrls: attachmentUrls.length > 0 ? attachmentUrls : undefined,
-        attachmentTypes: attachmentTypes.length > 0 ? attachmentTypes : undefined,
-        attachmentNames: attachmentNames.length > 0 ? attachmentNames : undefined,
-      };
-
-      console.log("Resending message for regeneration:", messageToResend);
-      await handleMessage(messageToResend);
-
+      // 3. Use regenerate to trigger AI response from the user message
+      console.log("Using regenerate to regenerate AI response");
+      await regenerate();
     } catch (error) {
       console.error("Error regenerating message:", error);
       // Revert UI changes on error
@@ -367,70 +368,83 @@ export default function ChatClient({
 
     console.log("Message sent to ai sdk v5", sendFormat);
 
-    console.log("Saving message to database", dbMessage);
+    // Check if this message already has a database ID (meaning it was saved by Home page)
+    const hasDbId = (message as any).id || (message as any)._id;
 
-    // Save the message to the database and update the message ID
-    try {
-      const savedUserMessage = await addMessageMutation.mutateAsync({
-        conversationId: sessionId,
-        message: {
-          role: dbMessage.role,
-          content: dbMessage.content,
-          type: dbMessage.type,
-          fileUrl: dbMessage.fileUrl,
-          fileName: dbMessage.fileName,
-          fileType: dbMessage.fileType,
-          // Map the attachmentUrls, attachmentTypes, attachmentNames to the attachments array
-          attachments: dbMessage.attachmentUrls?.map((url, index) => ({
-            url: url,
-            fileName: dbMessage.attachmentNames?.[index] || "unknown",
-            fileType:
-              dbMessage.attachmentTypes?.[index] || "application/octet-stream",
-            type:
-              dbMessage.attachmentTypes?.[index] === "image"
-                ? "image"
-                : dbMessage.attachmentTypes?.[index] === "pdf"
-                ? "pdf"
-                : "file",
-          })),
-        },
-      });
+    if (hasDbId) {
+      console.log(
+        "Message already has DB ID, skipping database save:",
+        hasDbId
+      );
+      // Track the database ID
+      savedMessageIds.current.add(String(hasDbId));
+    } else {
+      console.log("Saving message to database", dbMessage);
 
-      console.log("User message saved to database:", savedUserMessage);
+      // Save the message to the database and update the message ID
+      try {
+        const savedUserMessage = await addMessageMutation.mutateAsync({
+          conversationId: sessionId,
+          message: {
+            role: dbMessage.role,
+            content: dbMessage.content,
+            type: dbMessage.type,
+            fileUrl: dbMessage.fileUrl,
+            fileName: dbMessage.fileName,
+            fileType: dbMessage.fileType,
+            // Map the attachmentUrls, attachmentTypes, attachmentNames to the attachments array
+            attachments: dbMessage.attachmentUrls?.map((url, index) => ({
+              url: url,
+              fileName: dbMessage.attachmentNames?.[index] || "unknown",
+              fileType:
+                dbMessage.attachmentTypes?.[index] ||
+                "application/octet-stream",
+              type:
+                dbMessage.attachmentTypes?.[index] === "image"
+                  ? "image"
+                  : dbMessage.attachmentTypes?.[index] === "pdf"
+                  ? "pdf"
+                  : "file",
+            })),
+          },
+        });
 
-      // Update the user message with the database ID so edit/delete work properly
-      // We need to find the last user message that matches our content
-      if (savedUserMessage && savedUserMessage._id) {
-        const dbId = String(savedUserMessage._id);
+        console.log("User message saved to database:", savedUserMessage);
 
-        // Use a timeout to ensure the message has been added to the messages array
-        setTimeout(() => {
-          setMessages((prevMessages) => {
-            const lastUserMessage = [...prevMessages]
-              .reverse()
-              .find(
-                (msg) =>
-                  msg.role === "user" &&
-                  msg.parts.some(
-                    (part: any) =>
-                      part.type === "text" && part.text === message.content
-                  )
-              );
+        // Update the user message with the database ID so edit/delete work properly
+        // We need to find the last user message that matches our content
+        if (savedUserMessage && savedUserMessage._id) {
+          const dbId = String(savedUserMessage._id);
 
-            if (lastUserMessage) {
-              return prevMessages.map((msg) =>
-                msg.id === lastUserMessage.id ? { ...msg, id: dbId } : msg
-              );
-            }
-            return prevMessages;
-          });
+          // Use a timeout to ensure the message has been added to the messages array
+          setTimeout(() => {
+            setMessages((prevMessages) => {
+              const lastUserMessage = [...prevMessages]
+                .reverse()
+                .find(
+                  (msg) =>
+                    msg.role === "user" &&
+                    msg.parts.some(
+                      (part: any) =>
+                        part.type === "text" && part.text === message.content
+                    )
+                );
 
-          // Track the database ID
-          savedMessageIds.current.add(dbId);
-        }, 100);
+              if (lastUserMessage) {
+                return prevMessages.map((msg) =>
+                  msg.id === lastUserMessage.id ? { ...msg, id: dbId } : msg
+                );
+              }
+              return prevMessages;
+            });
+
+            // Track the database ID
+            savedMessageIds.current.add(dbId);
+          }, 100);
+        }
+      } catch (error) {
+        console.error("Failed to save user message:", error);
       }
-    } catch (error) {
-      console.error("Failed to save user message:", error);
     }
   };
 
