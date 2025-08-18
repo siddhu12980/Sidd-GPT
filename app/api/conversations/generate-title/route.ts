@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await generateText({
-      model: openai("gpt-3.5-turbo"),
+      model: openai("gpt-4o"),
       prompt: `Analyze this chat conversation and determine if there's enough context to generate a meaningful title.
 Chat context:
 ${context}
@@ -36,7 +36,6 @@ Examples:
 - "What's the weather like?" → "null"
 
 Title:`,
-      maxTokens: 20,
     });
 
     const title = result.text.trim();
@@ -55,4 +54,3 @@ Title:`,
     );
   }
 }
- 

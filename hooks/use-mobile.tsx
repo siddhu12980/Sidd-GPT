@@ -1,19 +1,43 @@
-import * as React from "react"
+"use client";
 
-const MOBILE_BREAKPOINT = 768
+import { useEffect, useState } from "react";
 
-export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
+const getMobileDetect = (userAgent: string) => {
+  const isAndroid = (): boolean => Boolean(userAgent.match(/Android/i));
+  const isIos = (): boolean => Boolean(userAgent.match(/iPhone|iPad|iPod/i));
+  const isOpera = (): boolean => Boolean(userAgent.match(/Opera Mini/i));
+  const isWindows = (): boolean => Boolean(userAgent.match(/IEMobile/i));
+  const isSSR = (): boolean => Boolean(userAgent.match(/SSR/i));
 
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
-    mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener("change", onChange)
-  }, [])
+  const isMobile = (): boolean =>
+    Boolean(isAndroid() || isIos() || isOpera() || isWindows());
+  const isDesktop = (): boolean => Boolean(!isMobile() && !isSSR());
+  return {
+    isMobile,
+    isDesktop,
+    isAndroid,
+    isIos,
+    isSSR,
+  };
+};
 
-  return !!isMobile
-}
+export const useIsMobile = () => {
+  // Initialize with false to match server rendering
+  const [isMobile, setIsMobile] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    
+    const userAgent = navigator.userAgent;
+    const device = getMobileDetect(userAgent);
+    setIsMobile(device.isMobile());
+  }, []);
+
+  // Return false during SSR and initial render to prevent hydration mismatch
+  if (!mounted) {
+    return false;
+  }
+
+  return isMobile;
+};

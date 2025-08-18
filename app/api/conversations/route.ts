@@ -12,22 +12,47 @@ if (!mongoose.connection.readyState) {
 }
 
 export async function GET(req: NextRequest) {
-  console.log("req", req);
+  console.log("🔍 GET /api/conversations - Request received");
   const { userId } = await auth();
-  console.log("userId", userId);
-  if (!userId)
+  console.log("🔑 Clerk userId:", userId);
+
+  if (!userId) {
+    console.log("❌ No userId - returning 401");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  // Find the user
-  const user = await User.findOne({ clerkId: userId });
-  if (!user)
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  try {
+    // Find the user
+    console.log("👤 Looking for user with clerkId:", userId);
+    let user = await User.findOne({ clerkId: userId });
+    console.log(
+      "👤 Found user:",
+      user ? { _id: user._id, clerkId: user.clerkId } : null
+    );
 
-  // Get all sessions for this user
-  const sessions = await Session.find({ user: user._id }).select(
-    "title createdAt updatedAt"
-  );
-  return NextResponse.json(sessions);
+    // Auto-create user if they don't exist (like in POST endpoint)
+    if (!user) {
+      console.log("👤 User not found, creating new user...");
+      user = await User.create({ clerkId: userId });
+      console.log("👤 Created new user:", { _id: user._id, clerkId: user.clerkId });
+    }
+
+    // Get all sessions for this user
+    console.log("💬 Looking for sessions for user._id:", user._id);
+    const sessions = await Session.find({ user: user._id }).select(
+      "title createdAt updatedAt"
+    );
+    console.log("💬 Found sessions:", sessions.length);
+    console.log("💬 Sessions data:", sessions);
+
+    return NextResponse.json(sessions);
+  } catch (error) {
+    console.error("💥 Error in GET /api/conversations:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {

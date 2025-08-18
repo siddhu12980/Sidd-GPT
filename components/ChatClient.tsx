@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import "./hide-scrollbar.css";
 
@@ -20,49 +20,30 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // Import the new hooks
 import {
+  useAddMessage,
   useCreateConversation,
   useDeleteConversation,
-  useAddMessage,
   useGenerateTitle,
-  useConversations,
   useUpdateConversation,
+  useConversations,
 } from "@/hooks/useConversations";
 import { useIsMobile } from "@/hooks/use-mobile";
 import MemoriesPage from "./Memories";
 import MainChatScreen from "./MainChatScreen";
+import { DatabaseMessage, toSendMessageFormat } from "@/lib/message-utils";
 
 export default function ChatClient({
   sessionId,
   sessionTitle,
   initialMessages,
+  userId,
 }: {
   sessionId: string;
-  sessionTitle?: string;
-  initialMessages: {
-    _id?: string;
-    role: string;
-    content: string;
-    createdAt?: string;
-    type?: string;
-    fileUrl?: string;
-    fileName?: string;
-    fileType?: string;
-    // NEW: Multiple attachments support
-    attachments?: {
-      type: string;
-      url: string;
-      fileName: string;
-      fileType: string;
-    }[];
-    attachmentUrls?: string[];
-    attachmentTypes?: string[];
-    attachmentNames?: string[];
-    attachmentCount?: number;
-    hasMultipleAttachments?: boolean;
-  }[];
+  sessionTitle: string;
+  initialMessages: any[];
+  userId?: string;
 }) {
   const router = useRouter();
-  const firstMessageTriggeredRef = useRef(false);
   const { user } = useUser();
 
   const createConversationMutation = useCreateConversation();
@@ -73,259 +54,237 @@ export default function ChatClient({
   const { refetch: refetchConversations } = useConversations();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [currentPage, setCurrentPage] = useState("chat"); // "chat" or "pricing" or memory
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
-    null
-  );
+  const [currentPage, setCurrentPage] = useState("chat");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   const isMobile = useIsMobile();
 
-  const actionBtnRef = useRef<HTMLButtonElement>(null);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [profileMenuPos, setProfileMenuPos] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
+  // Use the new AI SDK v5 properly
+  const { messages, sendMessage, regenerate, setMessages, stop, status } =
+    useChat({
+      id: sessionId,
+      onFinish: async ({ message }) => {
+        console.log("AI response completed:", message);
 
-  const avatarBtnRef = useRef<HTMLDivElement>(null);
+        // Only save if it's an AI response and hasn't been saved already
+        if (
+          message &&
+          message.role === "assistant" &&
+          !savedMessageIds.current.has(message.id)
+        ) {
+          // Mark this message as being saved
+          savedMessageIds.current.add(message.id);
 
-  // Add state for delete dialog
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+          // Extract text content safely
+          let content = "";
+          if (message.parts) {
+            content = message.parts
+              .filter((p: any) => p.type === "text")
+              .map((p: any) => p.text || "")
+              .join("");
+          }
 
-  // Add state to track pending message updates
-  const [pendingMessageUpdate, setPendingMessageUpdate] = useState<{
-    id: string;
-    properties: {
-      type?: string;
-      fileUrl?: string;
-      fileName?: string;
-      fileType?: string;
-      // NEW: Multiple attachments support
-      attachmentUrls?: string[];
-      attachmentTypes?: string[];
-      attachmentNames?: string[];
-    };
-  } | null>(null);
+          const aiDbMessage: DatabaseMessage = {
+            id: message.id,
+            role: "assistant",
+            content: content,
+            type: "text",
+            createdAt: new Date().toISOString(),
+          };
+
+          try {
+            // Save AI response to database
+            const savedMessage = await addMessageMutation.mutateAsync({
+              conversationId: sessionId,
+              message: aiDbMessage,
+            });
+
+            console.log("AI message saved to database:", savedMessage);
+
+            // Update the message with the database ID so edit/delete work properly
+            if (savedMessage && savedMessage._id) {
+              const dbId = String(savedMessage._id);
+              setMessages((prevMessages) =>
+                prevMessages.map((msg) =>
+                  msg.id === message.id ? { ...msg, id: dbId , _id: dbId} : msg
+                )
+              );
+
+              // Update the saved message IDs with the new database ID
+              savedMessageIds.current.delete(message.id);
+              savedMessageIds.current.add(dbId);
+            }
+          } catch (error) {
+            console.error("Failed to save AI message:", error);
+            // Remove from saved set if save failed
+            savedMessageIds.current.delete(message.id);
+          }
+
+          console.log("sessionTitle", sessionTitle);
+          // Generate title if needed
+          const shouldGenerateTitle =
+            (sessionTitle === "New Chat" ||
+              !sessionTitle ||
+              sessionTitle === "ChatGPT") &&
+            messages.length >= 2;
+
+          if (shouldGenerateTitle) {
+            console.log("Generating title");
+            const recentMessages = messages.slice(-4);
+            const context = recentMessages
+              .map((msg) => {
+                // Extract text content from parts
+                let content = "";
+                if (msg.parts && Array.isArray(msg.parts)) {
+                  content = msg.parts
+                    .filter((p: any) => p.type === "text")
+                    .map((p: any) => p.text || "")
+                    .join(" ");
+                }
+                return `${msg.role}: ${content}`;
+              })
+              .join("\n");
+
+
+            try {
+              const { title } = await generateTitleMutation.mutateAsync({
+                sessionId,
+                context,
+              });
+
+              console.log("title", title);
+
+              if (title) {
+                await updateConversationMutation.mutateAsync({
+                  id: sessionId,
+                  data: { title: title },
+                });
+                refetchConversations();
+              }
+            } catch (error) {
+              console.error("Failed to generate title:", error);
+            }
+          }
+        }
+      },
+    });
+
+  // Track saved message IDs to prevent duplicate saves
+  const savedMessageIds = useRef(new Set<string>());
 
   useEffect(() => {
-    if (isMobile) {
-      setSidebarOpen(false);
-    } else {
-      setSidebarOpen(true);
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setMessages(initialMessages);
+    // Mark all existing messages as already saved to prevent re-saving on reload
+    initialMessages.forEach((msg: any) => {
+      if (msg.id) {
+        savedMessageIds.current.add(msg.id);
+      }
+    });
+  }, [initialMessages, setMessages]);
+
+  useEffect(() => {
+    // Only update sidebar state after component is mounted to prevent hydration mismatch
+    if (mounted) {
+      if (isMobile) {
+        setSidebarOpen(false);
+      } else {
+        setSidebarOpen(true);
+      }
     }
-  }, [isMobile]);
+  }, [isMobile, mounted]);
 
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as Element;
-      const isMenuButton = target.closest("[data-menu-button]");
-      const isMenuPortal = target.closest("[data-menu-portal]");
-      const isMenuItem = target.closest("[data-menu-item]");
+  async function regenerateMessage(options?: { messageId?: string }) {
+    const messageId = options?.messageId;
+    if (!messageId) return;
 
-      if (isMenuButton || isMenuPortal || isMenuItem) {
+    const messageIndex = messages.findIndex((msg) => msg.id === messageId);
+    if (messageIndex === -1) return;
+
+    // Find the user message that we need to resend (the one before the AI message we're regenerating)
+    const userMessageIndex = messageIndex - 1;
+    if (userMessageIndex < 0 || messages[userMessageIndex].role !== "user") {
+      console.error("No user message found before the AI message to regenerate");
+      return;
+    }
+
+    const userMessage = messages[userMessageIndex];
+    console.log("User message to resend:", userMessage);
+
+    // 1. Delete messages from UI immediately for responsive UX (from the user message onwards)
+    const newMessages = messages.slice(0, userMessageIndex);
+    setMessages(newMessages);
+
+    try {
+      // 2. Delete messages from backend (from the user message onwards, including target)
+      const deleteResponse = await fetch(
+        `/api/conversations/${sessionId}/messages?after=${userMessage.id}&includeTarget=true`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!deleteResponse.ok) {
+        console.error(
+          "Failed to delete messages for regeneration:",
+          deleteResponse.status
+        );
         return;
       }
 
-      setMenuOpen(false);
-    }
+      // 3. Extract the user message content and attachments to resend
+      let content = "";
+      let attachmentUrls: string[] = [];
+      let attachmentTypes: string[] = [];
+      let attachmentNames: string[] = [];
 
-    if (menuOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    } else {
-      document.removeEventListener("mousedown", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [menuOpen]);
+      // Extract text content from parts
+      if (userMessage.parts && Array.isArray(userMessage.parts)) {
+        const textParts = userMessage.parts.filter((p: any) => p.type === "text");
+        content = textParts.map((p: any) => p.text || "").join(" ");
 
-  useEffect(() => {
-    if (menuOpen && actionBtnRef.current) {
-      const rect = actionBtnRef.current.getBoundingClientRect();
-      setMenuPos({
-        top: rect.bottom + 8,
-        left: rect.right - 40,
-      });
-    }
-  }, [menuOpen]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as Element;
-      const isMenuButton = target.closest("[data-profile-menu-button]");
-      const isMenuPortal = target.closest("[data-profile-menu-portal]");
-      if (isMenuButton || isMenuPortal) return;
-      setProfileMenuOpen(false);
-    }
-    if (profileMenuOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    } else {
-      document.removeEventListener("mousedown", handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [profileMenuOpen]);
-
-  useEffect(() => {
-    if (profileMenuOpen && avatarBtnRef.current) {
-      const rect = avatarBtnRef.current.getBoundingClientRect();
-      setProfileMenuPos({
-        top: rect.bottom + 8,
-        left: rect.right - 240,
-      });
-    }
-  }, [profileMenuOpen]);
-
-  const {
-    messages,
-    input,
-    setInput,
-    append,
-    isLoading,
-    status,
-    stop,
-    reload,
-    setMessages,
-    handleSubmit,
-  } = useChat({
-    api: "/api/chat",
-    body: {
-      userId: user?.id || "anonymous",
-      sessionId: sessionId, // sessionId for memory isolation
-    },
-
-    initialMessages: initialMessages.map((m) => ({
-      ...m,
-      type: m.type || "text",
-      fileUrl: m.fileUrl || "",
-      fileName: m.fileName || "",
-      fileType: m.fileType || "",
-      // NEW: Include attachment data for multiple files
-      attachments: m.attachments || [],
-      attachmentUrls: m.attachmentUrls || [],
-      attachmentTypes: m.attachmentTypes || [],
-      attachmentNames: m.attachmentNames || [],
-      attachmentCount: m.attachmentCount || 0,
-      hasMultipleAttachments: m.hasMultipleAttachments || false,
-      id: m._id || `temp-${Date.now()}`, // Use _id as id for useChat
-      createdAt: m.createdAt ? new Date(m.createdAt) : undefined,
-      role: m.role as "system" | "user" | "assistant" | "data",
-    })),
-
-    onFinish: async (aiMessage) => {
-      // Save AI message to database and get the real _id
-      const savedAiMessage = await addMessageMutation.mutateAsync({
-        conversationId: sessionId,
-        message: aiMessage,
-      });
-
-      console.log("Saved AI message with real _id:", savedAiMessage);
-
-      // Update the AI message in the hook state with the real _id
-      // setMessages((currentMessages) => {
-      //   return currentMessages.map((msg, index) => {
-      //     // Find the AI message that was just added (should be the last one)
-      //     if (
-      //       index === currentMessages.length - 1 &&
-      //       msg.role === "assistant" &&
-      //       msg.content === aiMessage.content &&
-      //       savedAiMessage._id
-      //     ) {
-      //       return {
-      //         ...msg,
-      //         id: savedAiMessage._id, // Update with real MongoDB _id
-      //       };
-      //     }
-      //     return msg;
-      //   });
-      // });
-
-      // Generate title if needed
-      const shouldGenerateTitle =
-        (sessionTitle === "New Chat" ||
-          !sessionTitle ||
-          sessionTitle === "ChatGPT") &&
-        messages.length >= 2;
-
-      if (shouldGenerateTitle) {
-        const recentMessages = messages.slice(-4);
-        const context = recentMessages
-          .map((msg) => `${msg.role}: ${msg.content}`)
-          .join("\n");
-
-        try {
-          const { title } = await generateTitleMutation.mutateAsync({
-            sessionId,
-            context,
-          });
-
-          if (title) {
-            await updateConversationMutation.mutateAsync({
-              id: sessionId,
-              data: { title: title },
-            });
-            refetchConversations();
-          }
-        } catch (error) {
-          console.error("Failed to generate title:", error);
-        }
-      }
-    },
-    onResponse: (response) => {
-      // Handle response if needed
-    },
-    onError: (error) => {
-      console.error("Chat error:", error);
-    },
-  });
-
-  // useEffect to update message properties after append completes - moved after useChat
-  useEffect(() => {
-    if (pendingMessageUpdate) {
-      const messageExists = messages.some(
-        (msg) => msg.id === pendingMessageUpdate.id
-      );
-
-      if (messageExists) {
-        setMessages((currentMessages) => {
-          return currentMessages.map((msg) => {
-            if (msg.id === pendingMessageUpdate.id) {
-              return {
-                ...msg,
-                ...pendingMessageUpdate.properties,
-              };
+        // Extract file attachments from parts
+        const fileParts = userMessage.parts.filter((p: any) => p.type === "file");
+        fileParts.forEach((part: any) => {
+          if (part.url) {
+            attachmentUrls.push(part.url);
+            attachmentNames.push(part.filename || "unknown");
+            // Determine type from mediaType
+            if (part.mediaType?.startsWith("image/")) {
+              attachmentTypes.push("image");
+            } else if (part.mediaType === "application/pdf") {
+              attachmentTypes.push("pdf");
+            } else {
+              attachmentTypes.push("file");
             }
-            return msg;
-          });
+          }
         });
-
-        // Only clear pending update when streaming is done
-        // Don't clear during streaming to maintain properties
-        if (status === "ready" || status === "error") {
-          setPendingMessageUpdate(null);
-        }
       }
-    }
-  }, [messages, pendingMessageUpdate, status]); // Added status to dependencies
 
-  // Check if we need to trigger AI response for first message
-  useEffect(() => {
-    if (
-      !firstMessageTriggeredRef.current &&
-      initialMessages.length === 1 &&
-      initialMessages[0].role === "user" &&
-      !isLoading
-    ) {
-      // This is a new conversation with only a user message, trigger AI response
-      firstMessageTriggeredRef.current = true; // Mark as triggered
+      // 4. Resend the user message to trigger a new AI response
+      const messageToResend = {
+        content: content,
+        role: "user" as const,
+        type: attachmentUrls.length > 0 ? "mixed" : "text",
+        attachmentUrls: attachmentUrls.length > 0 ? attachmentUrls : undefined,
+        attachmentTypes: attachmentTypes.length > 0 ? attachmentTypes : undefined,
+        attachmentNames: attachmentNames.length > 0 ? attachmentNames : undefined,
+      };
 
-      // Trigger AI response to the existing user message
-      reload();
+      console.log("Resending message for regeneration:", messageToResend);
+      await handleMessage(messageToResend);
+
+    } catch (error) {
+      console.error("Error regenerating message:", error);
+      // Revert UI changes on error
+      setMessages(messages);
     }
-  }, [initialMessages, reload, isLoading]);
+  }
 
   const handleNewChat = async () => {
     try {
@@ -342,8 +301,6 @@ export default function ChatClient({
     }
   };
 
-  // testing reload
-
   const handleMessage = async (message: {
     content: string;
     role: "user";
@@ -351,129 +308,133 @@ export default function ChatClient({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
-    // NEW: Multiple attachments support
     attachmentUrls?: string[];
     attachmentTypes?: string[];
     attachmentNames?: string[];
   }) => {
-    // Save user message to database first to get real _id
-    const savedUserMessage = await addMessageMutation.mutateAsync({
-      conversationId: sessionId,
-      message: {
-        ...message,
-        type: message.type as "text" | "image" | "file" | "mixed",
-        // NEW: Construct attachments array if multiple attachments exist
-        ...(message.attachmentUrls &&
-          message.attachmentUrls.length > 0 && {
-            attachments: message.attachmentUrls.map((url, index) => ({
-              type: (message.attachmentTypes?.[index] || "file") as
-                | "image"
-                | "pdf"
-                | "file",
-              url: url,
-              fileName:
-                message.attachmentNames?.[index] ||
-                url.split("/").pop() ||
-                "unknown",
-              fileType:
-                message.attachmentTypes?.[index] === "image"
-                  ? "image/*"
-                  : message.attachmentTypes?.[index] === "pdf"
-                  ? "application/pdf"
-                  : "application/octet-stream",
-            })),
-          }),
-      },
-    });
+    console.log("Sending message to ai sdk v5", message);
 
-    // Check if this is a multiple attachments message
+    // Convert to proper DatabaseMessage format
+    const dbMessage: DatabaseMessage = {
+      ...message,
+      type: (message.type as "text" | "image" | "file" | "mixed") || "text",
+    };
+
+    console.log("message from input box ", message);
+
+    // Use utility function to convert to sendMessage format
+    const sendFormat = toSendMessageFormat(dbMessage);
+
+    console.log("Send format:", sendFormat);
+
+    // Create UI message format and append to conversation
+    const uiMessage: any = {
+      role: "user",
+      parts: [{ type: "text", text: message.content }],
+    };
+
+    // Add file parts if attachments exist
     if (message.attachmentUrls && message.attachmentUrls.length > 0) {
-      // For multiple attachments, append with the new format and include in body
-      append(
-        {
-          id: savedUserMessage._id,
-          role: "user",
-          content: message.content,
-        } as any,
-        {
-          body: {
-            userId: user?.id || "anonymous",
-            sessionId: sessionId,
-            attachmentUrls: message.attachmentUrls,
-            attachmentTypes: message.attachmentTypes,
-          },
-        }
-      );
+      message.attachmentUrls.forEach((url, index) => {
+        const fileName = message.attachmentNames?.[index] || "unknown";
+        const fileType = message.attachmentTypes?.[index];
 
-      // Set pending update for display properties
-      setPendingMessageUpdate({
-        id: savedUserMessage._id || `temp-${Date.now()}`,
-        properties: {
-          type: "mixed" as "text" | "image" | "file" | "mixed",
-          // Store attachment info for display
-          attachmentUrls: message.attachmentUrls,
-          attachmentTypes: message.attachmentTypes,
-          attachmentNames: message.attachmentNames,
+        uiMessage.parts.push({
+          type: "file",
+          url: url,
+          filename: fileName,
+          mediaType:
+            fileType === "image"
+              ? "image/jpeg"
+              : fileType === "pdf"
+              ? "application/pdf"
+              : "application/octet-stream",
+        });
+      });
+    } else if (message.fileUrl) {
+      uiMessage.parts.push({
+        type: "file",
+        url: message.fileUrl,
+        filename: message.fileName || "unknown",
+        mediaType: message.fileType || "application/octet-stream",
+      });
+    }
+
+    console.log("UI message to send:", uiMessage);
+
+    // Send message using AI SDK v5 - this triggers the API call
+    sendMessage(uiMessage);
+
+    console.log("Message sent to ai sdk v5", sendFormat);
+
+    console.log("Saving message to database", dbMessage);
+
+    // Save the message to the database and update the message ID
+    try {
+      const savedUserMessage = await addMessageMutation.mutateAsync({
+        conversationId: sessionId,
+        message: {
+          role: dbMessage.role,
+          content: dbMessage.content,
+          type: dbMessage.type,
+          fileUrl: dbMessage.fileUrl,
+          fileName: dbMessage.fileName,
+          fileType: dbMessage.fileType,
+          // Map the attachmentUrls, attachmentTypes, attachmentNames to the attachments array
+          attachments: dbMessage.attachmentUrls?.map((url, index) => ({
+            url: url,
+            fileName: dbMessage.attachmentNames?.[index] || "unknown",
+            fileType:
+              dbMessage.attachmentTypes?.[index] || "application/octet-stream",
+            type:
+              dbMessage.attachmentTypes?.[index] === "image"
+                ? "image"
+                : dbMessage.attachmentTypes?.[index] === "pdf"
+                ? "pdf"
+                : "file",
+          })),
         },
       });
-    } else {
-      // LEGACY: Single file handling (backward compatibility)
-      append({
-        id: savedUserMessage._id,
-        role: "user",
-        content: message.content,
-        ...(message.fileUrl && { data: message.fileUrl }), // Include data for backend processing
-      } as any);
 
-      // Set up pending update for extended properties if needed
-      if (message.fileUrl || message.type) {
-        setPendingMessageUpdate({
-          id: savedUserMessage._id || `temp-${Date.now()}`,
-          properties: {
-            type: (message.type || (message.fileUrl ? "image" : "text")) as
-              | "text"
-              | "image"
-              | "file"
-              | "mixed",
-            fileUrl: message.fileUrl || "",
-            fileName: message.fileName || "",
-            fileType: message.fileType || "",
-          },
-        });
-      }
-    }
-  };
+      console.log("User message saved to database:", savedUserMessage);
 
-  // Share conversation handler
-  const handleShare = async () => {
-    try {
-      const shareUrl = `${window.location.origin}/chat/${sessionId}`;
+      // Update the user message with the database ID so edit/delete work properly
+      // We need to find the last user message that matches our content
+      if (savedUserMessage && savedUserMessage._id) {
+        const dbId = String(savedUserMessage._id);
 
-      if (navigator.share) {
-        await navigator.share({
-          title: sessionTitle || "ChatGPT Conversation",
-          url: shareUrl,
-        });
-      } else {
-        await navigator.clipboard.writeText(shareUrl);
-        alert("Link copied to clipboard!");
+        // Use a timeout to ensure the message has been added to the messages array
+        setTimeout(() => {
+          setMessages((prevMessages) => {
+            const lastUserMessage = [...prevMessages]
+              .reverse()
+              .find(
+                (msg) =>
+                  msg.role === "user" &&
+                  msg.parts.some(
+                    (part: any) =>
+                      part.type === "text" && part.text === message.content
+                  )
+              );
+
+            if (lastUserMessage) {
+              return prevMessages.map((msg) =>
+                msg.id === lastUserMessage.id ? { ...msg, id: dbId } : msg
+              );
+            }
+            return prevMessages;
+          });
+
+          // Track the database ID
+          savedMessageIds.current.add(dbId);
+        }, 100);
       }
     } catch (error) {
-      console.error("Share failed:", error);
-    }
-  };
-
-  const handleArchive = async () => {
-    setMenuOpen(false);
-    try {
-      alert("Archive functionality coming soon!");
-    } catch (error) {
-      console.error("Archive failed:", error);
+      console.error("Failed to save user message:", error);
     }
   };
 
   const handleDelete = () => {
-    setMenuOpen(false);
     setShowDeleteDialog(true);
   };
 
@@ -495,8 +456,6 @@ export default function ChatClient({
     return <PricingPage />;
   }
 
-  append;
-
   return (
     <div className="flex h-screen bg-[#212121] text-white">
       {/* Confirm Delete Dialog */}
@@ -508,34 +467,26 @@ export default function ChatClient({
         title="Delete chat?"
         description={
           <>
-            This will delete <b>{sessionTitle || "this chat"}</b>.<br />
-            Visit{" "}
-            <a href="/settings" className="underline">
-              settings
-            </a>{" "}
-            to delete any memories saved during this chat.
+            This will delete <b>{sessionTitle || "this chat"}</b>.
           </>
         }
         confirmLabel="Delete"
         cancelLabel="Cancel"
         confirmVariant="destructive"
-        highlight={sessionTitle}
       />
+
       {/* Sidebar - Hidden on mobile */}
-      {sidebarOpen && !isMobile && (
-        <div className="w-64 bg-[#171717] flex flex-col  h-full">
+      {mounted && sidebarOpen && !isMobile && (
+        <div className="w-64 bg-[#171717] flex flex-col h-full">
           {/* Sidebar Header - Fixed */}
           <div className="flex-shrink-0 p-2">
             <div className="flex justify-between items-center gap-2 mb-2">
               <Logo />
-
               <Button
                 variant="ghost"
                 size="icon"
                 className="w-8 h-8 text-gray-400 hover:text-white hover:bg-gray-700 p-0"
-                onClick={() => {
-                  setSidebarOpen(!sidebarOpen);
-                }}
+                onClick={() => setSidebarOpen(false)}
               >
                 <PanelLeft className="w-4 h-4" />
               </Button>
@@ -560,7 +511,7 @@ export default function ChatClient({
       )}
 
       {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && isMobile && (
+      {mounted && sidebarOpen && isMobile && (
         <div className="fixed inset-0 z-[100]">
           <MobileSidebar
             sidebarOpen={sidebarOpen}
@@ -573,32 +524,20 @@ export default function ChatClient({
       {/* Main Content */}
       {currentPage === "chat" && (
         <MainChatScreen
-          append={append}
-          stop={stop}
-          avatarBtnRef={avatarBtnRef}
-          input={input}
+          regenerate={regenerateMessage}
           messages={messages}
-          setInput={setInput}
+          sendMessage={sendMessage}
+          status={status}
           isMobile={isMobile}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
-          handleShare={handleShare}
-          handleArchive={handleArchive}
           handleDelete={handleDelete}
           handleMessage={handleMessage}
-          isLoading={isLoading}
-          status={status}
-          reload={reload}
-          setMessages={setMessages}
           sessionId={sessionId}
-          setProfileMenuOpen={setProfileMenuOpen}
-          profileMenuOpen={profileMenuOpen}
-          profileMenuPos={profileMenuPos}
           setCurrentPage={setCurrentPage}
-          menuOpen={menuOpen}
-          menuPos={menuPos}
-          setMenuOpen={setMenuOpen}
           userId={user?.id}
+          stop={stop}
+          setMessages={setMessages}
         />
       )}
 

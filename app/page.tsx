@@ -1,19 +1,12 @@
-import { auth, currentUser } from "@clerk/nextjs/server";
-import Home from "@/components/Home";
-import LimitedHome from "@/components/LandingPage";
+import { auth } from "@clerk/nextjs/server";
+import HomePageClient from "@/components/HomePageClient";
 
 export default async function Page() {
-  const { userId, isAuthenticated } = await auth();
+  const { userId } = await auth();
 
-  console.log("userId", userId);
-  console.log("isAuthenticated", isAuthenticated);
+  console.log("Server - userId:", userId);
+  console.log("Server - isAuthenticated:", !!userId);
 
-  const user = await currentUser();
-  console.log("user", user);
-
-  if (!userId) {
-    return <LimitedHome />;
-  }
-
-  return <Home />;
+  // Pass the initial auth state to the client component
+  return <HomePageClient initialUserId={userId} />;
 }

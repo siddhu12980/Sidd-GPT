@@ -34,6 +34,7 @@ export default function CustomInputArea({
   stop,
   status,
   handleAttachClick,
+  disabled,
 }: {
   input: string;
   setInput: (input: string) => void;
@@ -53,6 +54,7 @@ export default function CustomInputArea({
   stop?: () => void;
   status?: string;
   handleAttachClick?: () => void;
+  disabled?: boolean;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -295,14 +297,16 @@ export default function CustomInputArea({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                pendingFiles.length > 0
+                disabled
+                  ? "Sign in to chat with ChatGPT"
+                  : pendingFiles.length > 0
                   ? `Ask about these ${pendingFiles.length} files...`
                   : pendingFile
                   ? "Ask anything about this..."
                   : "Ask anything"
               }
               className="input-box w-full placeholder:text-lg bg-transparent border-0 text-white placeholder:text-gray-400 focus-visible:ring-0 focus-visible:ring-offset-0 text-base p-0 mb-3"
-              disabled={isLoading || uploading}
+              disabled={disabled || isLoading || uploading}
             />
             {/* Controls Below Input */}
             <div className="flex items-center justify-between">
@@ -316,8 +320,9 @@ export default function CustomInputArea({
                       variant="ghost"
                       size="icon"
                       className="w-7 h-7 text-gray-200 hover:text-white hover:bg-gray-600 rounded-full"
+                      disabled={disabled}
                       onClick={() => {
-                        if (!user) {
+                        if (disabled || !user) {
                           setShowAuthPopover(true);
                         } else {
                           fileInputRef.current?.click();
@@ -458,6 +463,7 @@ export default function CustomInputArea({
                     size="icon"
                     className="w-7 h-7 text-gray-200 hover:text-white hover:bg-gray-600 rounded-full"
                     disabled={
+                      disabled ||
                       (!input.trim() &&
                         !pendingFile &&
                         pendingFiles.length === 0) ||

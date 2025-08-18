@@ -20,13 +20,41 @@ export const conversationKeys = {
 };
 
 // Hook to get all conversations
-export const useConversations = () => {
+export const useConversations = (enabled: boolean = true) => {
+
   return useQuery({
     queryKey: conversationKeys.lists(),
     queryFn: async () => {
-      const response = await fetch('/api/conversations');
-      return response.json();
+      try {
+        const response = await fetch("/api/conversations");
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (response.status === 401) {
+            throw new Error("Unauthorized - User not authenticated");
+          }
+          throw new Error(
+            `HTTP error! status: ${response.status}, message: ${errorText}`
+          );
+        }
+
+        const data = await response.json();
+
+        // Ensure we always return an array
+        const result = Array.isArray(data) ? data : [];
+        return result;
+      } catch (error) {
+        console.error("💥 Error fetching conversations:", error);
+        throw error;
+      }
     },
+    // Remove initialData to ensure query runs when enabled
+    // initialData: [],
+    // Only fetch when enabled (i.e., when user is loaded)
+    enabled: enabled,
+    // Force refetch when enabled changes
+    staleTime: 0,
+    gcTime: 0,
   });
 };
 

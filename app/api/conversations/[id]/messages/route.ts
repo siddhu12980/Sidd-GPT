@@ -140,9 +140,13 @@ export async function DELETE(
     console.log("Delete result:", deleteResult);
 
     // Remove from session.messages array
-    const updateResult = await Session.findByIdAndUpdate(id, {
-      $pull: { messages: { $in: toDeleteIds } },
-    });
+    const updateResult = await Session.findByIdAndUpdate(
+      id,
+      {
+        $pullAll: { messages: toDeleteIds },
+      },
+      { new: true }
+    );
     console.log("Session update result:", updateResult);
   }
 

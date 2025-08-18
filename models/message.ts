@@ -128,9 +128,148 @@ MessageSchema.virtual("primaryAttachment").get(function () {
   return null;
 });
 
+// NEW: Virtual to convert to AI SDK v5 UIMessage format
+MessageSchema.virtual("toUIMessage").get(function () {
+  const parts: any[] = [];
+
+  // Add text content as first part
+  if (this.content) {
+    parts.push({
+      type: "text",
+      text: this.content,
+    });
+  }
+
+  // Add file attachments as file parts
+  if (this.attachments?.length > 0) {
+    this.attachments.forEach((attachment: any) => {
+      parts.push({
+        type: "file",
+        mediaType: attachment.fileType,
+        url: attachment.url,
+        filename: attachment.fileName,
+      });
+    });
+  }
+
+  // Handle legacy single file (backward compatibility)
+  if (!this.attachments?.length && this.fileUrl) {
+    parts.push({
+      type: "file",
+      mediaType: this.fileType,
+      url: this.fileUrl,
+      filename: this.fileName,
+    });
+  }
+
+  return {
+    id: this._id?.toString(),
+    role: this.role,
+    parts: parts,
+  };
+});
+
+// NEW: Static method to convert from AI SDK v5 UIMessage to database format
+MessageSchema.statics.fromUIMessage = function (
+  uiMessage: any,
+  conversationId?: string
+) {
+  const message: any = {
+    role: uiMessage.role,
+    content: "",
+    attachments: [],
+    type: "text",
+  };
+
+  if (conversationId) {
+    message.conversationId = conversationId;
+  }
+
+  // Process message parts
+  if (uiMessage.parts) {
+    uiMessage.parts.forEach((part: any) => {
+      if (part.type === "text") {
+        message.content += part.text;
+      } else if (part.type === "file") {
+        message.attachments.push({
+          type: part.mediaType?.startsWith("image/")
+            ? "image"
+            : part.mediaType?.startsWith("application/pdf")
+            ? "pdf"
+            : "file",
+          url: part.url,
+          fileName: part.filename || "unknown",
+          fileType: part.mediaType || "application/octet-stream",
+        });
+      }
+    });
+  }
+
+  // Handle legacy content field (if no parts but has content)
+  if (!uiMessage.parts && uiMessage.content) {
+    message.content = uiMessage.content;
+  }
+
+  return new this(message);
+};
+
 delete mongoose.models.Message;
 // Ensure the model is always registered
 const Message =
   mongoose.models.Message || mongoose.model("Message", MessageSchema);
 
 export default Message;
+
+// Export helper functions for easy use
+export const MessageUtils = {
+  // Convert database message to UI format
+  toUIMessage: (dbMessage: any) => dbMessage.toUIMessage,
+
+  // Convert UI message to database format
+  fromUIMessage: (uiMessage: any, conversationId?: string) => {
+    const message: any = {
+      role: uiMessage.role,
+      content: "",
+      attachments: [],
+      type: "text",
+    };
+
+    if (conversationId) {
+      message.conversationId = conversationId;
+    }
+
+    // Process message parts
+    if (uiMessage.parts) {
+      uiMessage.parts.forEach((part: any) => {
+        if (part.type === "text") {
+          message.content += part.text;
+        } else if (part.type === "file") {
+          message.attachments.push({
+            type: part.mediaType?.startsWith("image/")
+              ? "image"
+              : part.mediaType?.startsWith("application/pdf")
+              ? "pdf"
+              : "file",
+            url: part.url,
+            fileName: part.filename || "unknown",
+            fileType: part.mediaType || "application/octet-stream",
+          });
+        }
+      });
+    }
+
+    // Handle legacy content field (if no parts but has content)
+    if (!uiMessage.parts && uiMessage.content) {
+      message.content = uiMessage.content;
+    }
+
+    return new Message(message);
+  },
+
+  // Convert array of database messages to UI format
+  toUIMessages: (dbMessages: any[]) => dbMessages.map((msg) => msg.toUIMessage),
+
+  // Convert array of UI messages to database format
+  fromUIMessages: (uiMessages: any[], conversationId?: string) =>
+    uiMessages.map((msg) => MessageUtils.fromUIMessage(msg, conversationId)),
+};

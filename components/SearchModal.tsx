@@ -36,7 +36,7 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
 
-  const { data: conversations = [], isLoading } = useConversations();
+  const { data: conversations = [], isLoading, error } = useConversations();
 
   // Debounced search query update
   useEffect(() => {
@@ -49,13 +49,15 @@ export function SearchModal({ open, onOpenChange }: SearchModalProps) {
   }, [searchQuery]);
 
   // Memoized filtered conversations
-  const filteredConversations = useMemo(
-    () =>
-      conversations.filter((conv: Conversation) =>
-        conv.title.toLowerCase().includes(debouncedQuery.toLowerCase())
-      ),
-    [conversations, debouncedQuery]
-  );
+  const filteredConversations = useMemo(() => {
+    // Ensure conversations is an array
+    const conversationsArray = Array.isArray(conversations)
+      ? conversations
+      : [];
+    return conversationsArray.filter((conv: Conversation) =>
+      conv?.title?.toLowerCase().includes(debouncedQuery.toLowerCase())
+    );
+  }, [conversations, debouncedQuery]);
 
   // Reset selection when search changes
   useEffect(() => {

@@ -1,7 +1,9 @@
+"use client";
 import { useRouter } from "next/navigation";
 import ChatHistoryItem from "./ChatHistoryItem";
 import { ScrollArea } from "./ui/scroll-area";
 import { useConversations } from "@/hooks/useConversations";
+import { useUser } from "@clerk/nextjs";
 import "./hide-scrollbar.css";
 
 export default function ChatHistory({
@@ -12,13 +14,14 @@ export default function ChatHistory({
   setCurrentPage?: (page: string) => void;
 }) {
   const router = useRouter();
+  const { user } = useUser();
 
-  // Use TanStack Query hook instead of manual fetch
+  // Use TanStack Query hook - only fetch when user is loaded
   const {
     data: conversations = [],
     isLoading: loading,
     error,
-  } = useConversations();
+  } = useConversations(!!user?.id);
 
   // Ensure conversations is always an array
   const safeConversations = Array.isArray(conversations) ? conversations : [];
@@ -36,7 +39,7 @@ export default function ChatHistory({
           <h3 className="text-sm font-medium text-gray-400 mb-2">Chats</h3>
         </div>
         <ScrollArea className="flex-1 px-1 hide-scrollbar">
-          <div className="space-y-1 pb-2">
+          <div className="space-y-1 pb-2 mu">
             {[...Array(5)].map((_, index) => (
               <div
                 key={index}

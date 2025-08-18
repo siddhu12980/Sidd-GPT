@@ -72,9 +72,10 @@ export default function LandingPage() {
           <CustomInputArea
             input={""}
             setInput={() => {}}
-            handleSendButtonClick={() => {}}
+            handleSendButtonClick={handleAttachClick} // Show login modal for any interaction
             isLoading={false}
             handleAttachClick={handleAttachClick}
+            disabled={true} // Disable input for unauthenticated users
           />
         </div>
 
@@ -84,9 +85,10 @@ export default function LandingPage() {
             <CustomInputArea
               input={""}
               setInput={() => {}}
-              handleSendButtonClick={() => {}}
+              handleSendButtonClick={handleAttachClick} // Show login modal for any interaction
               isLoading={false}
               handleAttachClick={handleAttachClick}
+              disabled={true} // Disable input for unauthenticated users
             />
           </div>
         </div>

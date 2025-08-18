@@ -117,7 +117,7 @@ export default function Memories() {
                 </p>
               </div>
             ) : (
-              <div className="p-4 space-y-3 md:p-6 md:space-y-4 no-scrollbar ">
+              <div className="p-4 space-y-3 md:p-6 md:space-y-4 no-scrollbarw ">
                 {memories.map((memory) => (
                   <div
                     key={memory.id}

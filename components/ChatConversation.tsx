@@ -4,8 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { Edit, Trash2, Brain } from "lucide-react";
 import ChatActionBar from "./ChatActionBar";
 import "./hide-scrollbar.css";
-import { Markdown } from "./Format";
+// import { Markdown } from "./Format";
+import { Markdown } from "@/components/markdown";
+import { toast } from "sonner";
 import { ChatRequestOptions } from "ai";
+import {
+  DatabaseMessage,
+  toSendMessageFormat,
+  toUIMessages,
+} from "@/lib/message-utils";
 
 export default function ChatConversation({
   handleMessage,
@@ -17,6 +24,7 @@ export default function ChatConversation({
   sessionId,
   append,
   userId,
+  sendMessage,
 }: {
   handleMessage: (msg: {
     content: string;
@@ -48,10 +56,14 @@ export default function ChatConversation({
   }[];
   isLoading: boolean;
   status?: string;
-  reload?: (
-    chatRequestOptions?: ChatRequestOptions
-  ) => Promise<string | null | undefined>;
-  setMessages?: (msgs: any[]) => void;
+
+  reload: (
+    options?: {
+      messageId?: string;
+    } & ChatRequestOptions
+  ) => Promise<void>;
+
+  setMessages: (msgs: any[]) => void;
   sessionId?: string;
   append?: (message: {
     role: "user";
@@ -60,6 +72,7 @@ export default function ChatConversation({
     id?: string;
   }) => void;
   userId?: string;
+  sendMessage: (message: { text: string; files?: FileList }) => void;
 }) {
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -81,33 +94,49 @@ export default function ChatConversation({
 
   const handleEditSave = async () => {
     if (editingId && editValue.trim() !== "") {
-      // 1. Create updated message with preserved properties
+      // 1. Find the original message
       const originalMessage = messages.find((msg) => msg.id === editingId);
       if (!originalMessage) return;
 
+      // 2. Create updated message with preserved properties
       const updatedMessage = {
         ...originalMessage,
         content: editValue.trim(),
+        // For AI SDK v5, we need to handle parts if they exist
+        parts: originalMessage.parts
+          ? originalMessage.parts.map((part: any) =>
+              part.type === "text" ? { ...part, text: editValue.trim() } : part
+            )
+          : undefined,
       };
 
-      // 2. Update UI immediately
+      // 3. Update UI immediately - remove all messages after the edited one
       const messageIndex = messages.findIndex((msg) => msg.id === editingId);
       if (messageIndex === -1) return;
 
-      // Update the message and remove all messages after it
       const updatedMessages = [
         ...messages.slice(0, messageIndex),
-        updatedMessage,
+        // updatedMessage,
       ];
 
-      if (setMessages) {
-        setMessages(updatedMessages);
-      }
+      // Fix: Ensure updatedMessages are in the correct DatabaseMessage[] type for toUIMessages
+      // If needed, map/transform to ensure 'role' is "user" | "assistant" and all required fields are present
+      const normalizedMessages = updatedMessages.map((msg) => ({
+        ...msg,
+        // Ensure 'role' is either "user" or "assistant"
+        role:
+          msg.role === "user" || msg.role === "assistant" ? msg.role : "user",
+        // Optionally, ensure 'id' is present (fallback to _id if needed)
+        id: msg.id ?? msg._id,
+      }));
+
+      setMessages(toUIMessages(normalizedMessages as DatabaseMessage[]));
+
       setEditingId(null);
       setEditValue("");
 
       try {
-        // 3. Update the message on the server (PATCH request)
+        // 4. Update the message on the server (PATCH request)
         const response = await fetch(
           `/api/conversations/${sessionId}/messages/${editingId}`,
           {
@@ -125,9 +154,8 @@ export default function ChatConversation({
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        // 4. ✅ FIXED: Delete subsequent messages using the correct bulk deletion API
+        // 5. Delete subsequent messages if there were any
         if (messageIndex < messages.length - 1) {
-          // There are messages after the edited one that need to be deleted
           const deleteResponse = await fetch(
             `/api/conversations/${sessionId}/messages?after=${editingId}&includeTarget=false`,
             {
@@ -136,53 +164,33 @@ export default function ChatConversation({
           );
 
           if (!deleteResponse.ok) {
-            console.error("Failed to delete subsequent messages:", deleteResponse.status);
+            console.error(
+              "Failed to delete subsequent messages:",
+              deleteResponse.status
+            );
           } else {
             const deleteResult = await deleteResponse.json();
             console.log("Bulk deletion result:", deleteResult);
           }
         }
 
-        // 5. Trigger AI response with the updated context
-        const msg = updatedMessage;
+        // 6. Trigger AI response using the new AI SDK v5 approach
+        // Convert the updated message to the proper format for sendMessage
+        const msg = updatedMessage as DatabaseMessage;
 
-        // ✅ FIXED: Handle multiple attachments in reload call
-        if (reload) {
-          if (msg.attachmentUrls && msg.attachmentUrls.length > 0) {
-            // Multiple attachments - use correct body structure
-            reload({
-              body: {
-                userId: userId || "anonymous",
-                sessionId: sessionId,
-                attachmentUrls: msg.attachmentUrls,
-                attachmentTypes: msg.attachmentTypes,
-              },
-            });
-          } else if (msg.fileUrl) {
-            // Single file - legacy support
-            reload({
-              body: {
-                userId: userId || "anonymous",
-                sessionId: sessionId,
-                data: msg.fileUrl,
-              },
-            });
-          } else {
-            // Text only message
-            reload({
-              body: {
-                userId: userId || "anonymous",
-                sessionId: sessionId,
-              },
-            });
-          }
-        }
+        // Handle attachments if they exist
+        const sendFormat = toSendMessageFormat(msg);
+
+        // Send the message to trigger AI response
+        sendMessage({
+          text: sendFormat.text,
+          files: sendFormat.files as any,
+        });
       } catch (error) {
         console.error("Error updating message:", error);
         // Revert UI changes on error
-        if (setMessages) {
-          setMessages(messages);
-        }
+        setMessages(messages);
+        alert("Failed to update message. Please try again.");
       }
     }
   };
@@ -192,7 +200,12 @@ export default function ChatConversation({
 
     // Remove this message and all after it
     const newMessages = messages.slice(0, idx);
-    setMessages?.(newMessages);
+
+    const toUiMessages = toUIMessages(newMessages as DatabaseMessage[]);
+
+    setMessages?.(toUiMessages as any);
+
+    console.log("Message to delete", messageId);
 
     // Delete this message and all messages after it from the server (includeTarget=true)
     try {
@@ -209,6 +222,11 @@ export default function ChatConversation({
       }
 
       const deleteResult = await deleteResponse.json();
+
+      if (deleteResult.deletedCount > 0 && deleteResult.success) {
+        toast.success("Message deleted");
+      }
+      console.log("deleteResult", deleteResult);
     } catch (error) {
       console.error("Error deleting messages:", error);
       return;
@@ -243,6 +261,8 @@ export default function ChatConversation({
       return "text";
     }
   };
+
+  console.log("messages in ChatConversation", messages);
 
   // Helper function to get filename from URL
   const getFileName = (content: string) => {
@@ -299,7 +319,12 @@ export default function ChatConversation({
               <ChatActionBar
                 content={message.content}
                 onRegenerate={
-                  status === "ready" || status === "error" ? reload : undefined
+                  status === "ready" || status === "error"
+                    ? () =>
+                        reload({
+                          messageId: message._id || message.id,
+                        })
+                    : undefined
                 }
               />
               {/* Memory indicator - show on first AI message or when context is used */}
@@ -362,7 +387,9 @@ export default function ChatConversation({
                                     key={index}
                                     src={url}
                                     alt={name}
-                                    className="w-20 h-20 object-cover rounded-lg"
+                                    onClick={() => window.open(url, "_blank")}
+                                    className="w-20 h-20 object-cover rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                                    title={`Click to view ${name} in full size`}
                                   />
                                 );
                               } else {
@@ -377,7 +404,9 @@ export default function ChatConversation({
                                 return (
                                   <div
                                     key={index}
-                                    className="flex items-center gap-2 bg-[#232323] rounded-xl p-2 min-w-[120px]"
+                                    onClick={() => window.open(url, "_blank")}
+                                    className="flex items-center gap-2 bg-[#232323] rounded-xl p-2 min-w-[120px] cursor-pointer hover:bg-[#2a2a2a] transition-colors"
+                                    title={`Click to open ${name}`}
                                   >
                                     <div className="flex-shrink-0">
                                       {isPdf ? (
@@ -429,7 +458,13 @@ export default function ChatConversation({
                           <img
                             src={message.fileUrl}
                             alt={message.fileName || "uploaded"}
-                            className="max-w-xs rounded-lg mb-2"
+                            onClick={() =>
+                              window.open(message.fileUrl, "_blank")
+                            }
+                            className="max-w-xs rounded-lg mb-2 cursor-pointer hover:opacity-80 transition-opacity"
+                            title={`Click to view ${
+                              message.fileName || "image"
+                            } in full size`}
                           />
                           {(message.content ||
                             (message.parts && message.parts[0]?.text)) && (
@@ -456,7 +491,15 @@ export default function ChatConversation({
 
                       return (
                         <div className="flex flex-col items-end">
-                          <div className="flex items-center gap-3 mb-2 bg-[#232323] rounded-xl p-3 max-w-xs">
+                          <div
+                            onClick={() =>
+                              window.open(message.fileUrl, "_blank")
+                            }
+                            className="flex items-center gap-3 mb-2 bg-[#232323] rounded-xl p-3 max-w-xs cursor-pointer hover:bg-[#2a2a2a] transition-colors"
+                            title={`Click to open ${
+                              message.fileName || "Document"
+                            }`}
+                          >
                             <div className="flex-shrink-0">
                               {isPdf ? (
                                 <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
@@ -514,7 +557,11 @@ export default function ChatConversation({
                           <img
                             src={message.content}
                             alt="uploaded"
-                            className="max-w-xs rounded-lg"
+                            onClick={() =>
+                              window.open(message.content, "_blank")
+                            }
+                            className="max-w-xs rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                            title="Click to view image in full size"
                           />
                         </div>
                       );
@@ -527,7 +574,9 @@ export default function ChatConversation({
                         <img
                           src={message.content}
                           alt="uploaded"
-                          className="max-w-xs rounded-lg"
+                          onClick={() => window.open(message.content, "_blank")}
+                          className="max-w-xs rounded-lg cursor-pointer hover:opacity-80 transition-opacity"
+                          title="Click to view image in full size"
                         />
                       );
                     } else if (contentType === "file") {
@@ -535,8 +584,11 @@ export default function ChatConversation({
                         <a
                           href={message.content}
                           target="_blank"
-                          rel="noopener"
-                          className="underline"
+                          rel="noopener noreferrer"
+                          className="underline hover:text-blue-400 transition-colors"
+                          title={`Click to open ${getFileName(
+                            message.content
+                          )}`}
                         >
                           {getFileName(message.content)}
                         </a>

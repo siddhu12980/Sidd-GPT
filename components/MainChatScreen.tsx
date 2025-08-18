@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PanelLeft } from "lucide-react";
 import CustomInputArea from "./CustomInputArea";
@@ -24,49 +24,40 @@ import { Button } from "./ui/button";
 import GptLabelDropDown from "./GptLabelDropDown";
 import { useClerk, useUser } from "@clerk/nextjs";
 import ChatConversation from "./ChatConversation";
-import { UIMessageExtended } from "@ai-sdk/react";
 import { createPortal } from "react-dom";
+import { toConversationMessages, UIMessage } from "@/lib/message-utils";
 import { ChatRequestOptions } from "ai";
 
 export default function MainChatScreen({
-  append,
-  avatarBtnRef,
-  input,
-  setInput,
+  messages: initialMessages,
+  sendMessage,
+  status,
   isMobile,
   sidebarOpen,
   setSidebarOpen,
-  handleShare,
-  handleArchive,
   handleDelete,
   handleMessage,
-  isLoading,
-  status,
-  reload,
-  setMessages,
   sessionId,
-  messages,
-  setProfileMenuOpen,
-  profileMenuOpen,
-  profileMenuPos,
   setCurrentPage,
-  menuOpen,
-  menuPos,
-  setMenuOpen,
-  stop,
   userId,
+  regenerate,
+  stop,
+  setMessages,
 }: {
-  append: (message: { role: "user"; content: string; data?: string }) => void;
-  avatarBtnRef: React.RefObject<HTMLDivElement | null>;
-  input: string;
-  messages: UIMessageExtended[];
-  setInput: (input: string) => void;
+  messages: any[];
+  sendMessage: (message: { text: string; files?: FileList }) => void;
+  status: string;
   isMobile: boolean;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
-  handleShare: () => void;
-  handleArchive: () => void;
   handleDelete: () => void;
+
+  regenerate: (
+    options?: {
+      messageId?: string;
+    } & ChatRequestOptions
+  ) => Promise<void>;
+
   handleMessage: (message: {
     content: string;
     role: "user";
@@ -74,41 +65,91 @@ export default function MainChatScreen({
     fileUrl?: string;
     fileName?: string;
     fileType?: string;
-    // NEW: Multiple attachments support
     attachmentUrls?: string[];
     attachmentTypes?: string[];
     attachmentNames?: string[];
   }) => void;
-  isLoading: boolean;
-  status: string;
-  reload: (
-    chatRequestOptions?: ChatRequestOptions
-  ) => Promise<string | null | undefined>;
-  setMessages: (messages: UIMessageExtended[]) => void;
   sessionId: string;
-  setProfileMenuOpen: (open: boolean) => void;
-  profileMenuOpen: boolean;
-  profileMenuPos: { top: number; left: number } | null;
   setCurrentPage: (page: string) => void;
-  menuOpen: boolean;
-  menuPos: { top: number; left: number } | null;
-  setMenuOpen: (open: boolean) => void;
-  stop: () => void;
   userId?: string;
+  stop: () => Promise<void>;
+  setMessages: (messages: any[]) => void;
 }) {
   const actionBtnRef = useRef<HTMLButtonElement>(null);
   const { signOut } = useClerk();
-
-  const { user } = useUser();
-
   const router = useRouter();
+
+  const [input, setInput] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [profileMenuPos, setProfileMenuPos] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+
+  const avatarBtnRef = useRef<HTMLDivElement>(null);
+
+  console.log("Messages in MainChatScreen", initialMessages);
+
+  // Check authentication state properly
+  const { user, isLoaded } = useUser();
 
   // Move router redirect to useEffect to avoid render-time navigation
   useEffect(() => {
-    if (!user) {
+    // Only redirect if Clerk has finished loading and user is definitely not authenticated
+    if (isLoaded && !user) {
       router.push("/");
     }
-  }, [user, router]);
+  }, [user, isLoaded, router]);
+
+  // Handle menu positioning
+  useEffect(() => {
+    if (menuOpen && actionBtnRef.current) {
+      const rect = actionBtnRef.current.getBoundingClientRect();
+      setMenuPos({
+        top: rect.bottom + 8,
+        left: rect.right - 40,
+      });
+    }
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (profileMenuOpen && avatarBtnRef.current) {
+      const rect = avatarBtnRef.current.getBoundingClientRect();
+      setProfileMenuPos({
+        top: rect.bottom + 8,
+        left: rect.right - 240,
+      });
+    }
+  }, [profileMenuOpen]);
+
+  // Handle share functionality
+  const handleShare = async () => {
+    try {
+      const shareUrl = `${window.location.origin}/chat/${sessionId}`;
+      if (navigator.share) {
+        await navigator.share({
+          title: "ChatGPT Conversation",
+          url: shareUrl,
+        });
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        alert("Link copied to clipboard!");
+      }
+    } catch (error) {
+      console.error("Share failed:", error);
+    }
+  };
+
+  const handleArchive = async () => {
+    setMenuOpen(false);
+    alert("Archive functionality coming soon!");
+  };
+
+  const isLoading = status === "submitted" || status === "streaming";
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -281,31 +322,15 @@ export default function MainChatScreen({
       <div className="flex-1 overflow-y-auto pb-28 sm:pb-6 hide-scrollbar">
         <div className="h-full flex flex-col px-4">
           <ChatConversation
+            reload={regenerate}
             handleMessage={handleMessage}
-            messages={messages.map((msg: UIMessageExtended) => ({
-              _id: msg._id,
-              id: msg.id,
-              role: msg.role,
-              content: msg.content,
-              createdAt:
-                typeof msg.createdAt === "string"
-                  ? msg.createdAt
-                  : msg.createdAt?.toISOString(),
-              type: msg.type || "text",
-              fileUrl: msg.fileUrl || "",
-              fileName: msg.fileName || "",
-              fileType: msg.fileType || "",
-              attachmentUrls: msg.attachmentUrls || [],
-              attachmentTypes: msg.attachmentTypes || [],
-              attachmentNames: msg.attachmentNames || [],
-            }))}
+            messages={toConversationMessages(initialMessages)}
             isLoading={isLoading}
             status={status}
-            reload={reload}
-            setMessages={setMessages}
             sessionId={sessionId}
-            append={append}
             userId={userId}
+            sendMessage={sendMessage}
+            setMessages={setMessages}
           />
         </div>
         <div ref={scrollRef} />
@@ -316,10 +341,10 @@ export default function MainChatScreen({
         <CustomInputArea
           input={input}
           setInput={setInput}
-          handleSendButtonClick={handleMessage}
+          handleSendButtonClick={(message) => handleMessage(message)}
           isLoading={isLoading}
-          stop={stop}
           status={status}
+          stop={stop}
         />
       </div>
 
@@ -329,10 +354,10 @@ export default function MainChatScreen({
           <CustomInputArea
             input={input}
             setInput={setInput}
-            handleSendButtonClick={handleMessage}
+            handleSendButtonClick={(message) => handleMessage(message)}
             isLoading={isLoading}
-            stop={stop}
             status={status}
+            stop={stop}
           />
         </div>
       </div>

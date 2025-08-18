@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./ui/button";
@@ -188,7 +190,7 @@ export default function ChatHistoryItem({
       ) : (
         <Button
           variant="ghost"
-          className={`flex-1 w-full justify-start text-left text-gray-100 hover:text-white hover:bg-gray-700 h-auto py-2 px-3 rounded-lg truncate text-[14px] font-normal flex items-center ${
+          className={`flex-1 cursor-pointer w-full justify-start text-left text-gray-100 hover:text-white hover:bg-gray-700 h-auto py-2 px-3 rounded-lg truncate text-[14px] font-normal flex items-center ${
             isActive ? "bg-gray-700 text-white" : ""
           }`}
           onClick={onClick}
@@ -202,7 +204,7 @@ export default function ChatHistoryItem({
       {!isRenaming && (
         <button
           ref={btnRef}
-          className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-600"
+          className="opacity-0 cursor-pointer group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-gray-600"
           aria-label="Show actions"
           onClick={() => setMenuOpen((v) => !v)}
           tabIndex={0}
