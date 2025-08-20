@@ -345,9 +345,9 @@ export default function ChatConversation({
                   } else {
                     // Choose one of these approaches:
                     // 1. JavaScript-based detection (current)
-                    return renderMarkdown(message.content);
+                    // return renderMarkdown(message.content);
                     // 2. CSS-based responsive (alternative - more performant)
-                    // return renderMarkdownResponsive(message.content);
+                    return renderMarkdownResponsive(message.content);
                   }
                 })()}
               </div>
