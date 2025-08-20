@@ -60,20 +60,74 @@ async function trackUsage(
 
 export async function POST(req: NextRequest) {
   try {
+    console.log("=== CHAT API START ===");
+    const requestId = Math.random().toString(36).substring(7);
+    console.log(`[${requestId}] Request started at:`, new Date().toISOString());
+
     // Get authenticated user
     const { userId } = await auth();
     const currentUserId = userId || "anonymous";
+    console.log(`[${requestId}] User ID:`, currentUserId);
 
-    const { messages } = await req.json();
+    const body = await req.json();
+    console.log(
+      `[${requestId}] Raw request body:`,
+      JSON.stringify(body, null, 2)
+    );
+
+    const { messages } = body;
 
     if (!messages || !Array.isArray(messages)) {
+      console.error(
+        `[${requestId}] Invalid messages format:`,
+        typeof messages,
+        messages
+      );
       return new Response("Invalid messages format", { status: 400 });
     }
+
+    console.log(`[${requestId}] Messages array length:`, messages.length);
+    console.log(`[${requestId}] Messages structure check:`);
+
+    // Log detailed structure of each message
+    messages.forEach((msg, index) => {
+      console.log(`[${requestId}] Message ${index}:`, {
+        role: msg.role,
+        hasId: !!msg.id,
+        hasParts: !!msg.parts,
+        partsLength: msg.parts?.length || 0,
+        partsTypes: msg.parts?.map((p: any) => p.type) || [],
+        hasContent: !!msg.content,
+        messageKeys: Object.keys(msg),
+      });
+
+      // Log file parts in detail
+      if (msg.parts) {
+        msg.parts.forEach((part: any, partIndex: number) => {
+          if (part.type === "file") {
+            console.log(
+              `[${requestId}] Message ${index}, File part ${partIndex}:`,
+              {
+                type: part.type,
+                mediaType: part.mediaType,
+                mediaTypeType: typeof part.mediaType,
+                hasUrl: !!part.url,
+                hasFilename: !!part.filename,
+                partKeys: Object.keys(part),
+              }
+            );
+          }
+        });
+      }
+    });
 
     const model: ModelName = "gpt-4o";
     const tokenManager = new TokenManager(model);
 
-    console.log("messages in backend ", JSON.stringify(messages, null, 2));
+    console.log(
+      `[${requestId}] Full messages in backend:`,
+      JSON.stringify(messages, null, 2)
+    );
 
     // Extract text content from parts for token counting (for our token manager)
     const normalizedMessages = messages.map((msg: any) => {
@@ -150,30 +204,132 @@ You remain helpful, respectful, and professional. Avoid unsafe or misleading out
     const inputTokens = tokenManager.countMessageTokens(normalizedMessages);
 
     console.log(
-      "finalMessages sample:",
+      `[${requestId}] finalMessages sample:`,
       JSON.stringify(finalMessages.slice(-2), null, 2)
     );
 
+    // Comprehensive logging before convertToModelMessages call
+    console.log(`[${requestId}] === BEFORE convertToModelMessages ===`);
+    console.log(
+      `[${requestId}] About to call convertToModelMessages with ${messages.length} messages`
+    );
+
+    // Log the exact format we're sending to convertToModelMessages
+    console.log(
+      `[${requestId}] Messages for convertToModelMessages:`,
+      JSON.stringify(messages, null, 2)
+    );
+
+    // Validate each message before conversion
+    const preConversionValidation = messages.map((msg, index) => {
+      const validation = {
+        index,
+        role: msg.role,
+        hasId: !!msg.id,
+        hasParts: !!msg.parts,
+        partsCount: msg.parts?.length || 0,
+        partsDetails:
+          msg.parts?.map((part: any, partIndex: number) => ({
+            partIndex,
+            type: part.type,
+            mediaType: part.mediaType,
+            mediaTypeValid:
+              typeof part.mediaType === "string" && part.mediaType.length > 0,
+            hasUrl: !!part.url,
+            hasFilename: !!part.filename,
+            allPartKeys: Object.keys(part),
+          })) || [],
+      };
+      return validation;
+    });
+
+    console.log(
+      `[${requestId}] Pre-conversion validation:`,
+      JSON.stringify(preConversionValidation, null, 2)
+    );
+
+    // Try the conversion and catch any errors
+    let convertedMessages;
+    try {
+      console.log(`[${requestId}] Calling convertToModelMessages...`);
+      convertedMessages = convertToModelMessages(messages);
+      console.log(
+        `[${requestId}] convertToModelMessages SUCCESS - converted ${convertedMessages.length} messages`
+      );
+      console.log(
+        `[${requestId}] Converted messages sample:`,
+        JSON.stringify(convertedMessages.slice(-2), null, 2)
+      );
+    } catch (conversionError) {
+      console.error(`[${requestId}] ❌ convertToModelMessages ERROR:`, {
+        error: conversionError,
+        errorMessage:
+          conversionError instanceof Error
+            ? conversionError.message
+            : "Unknown error",
+        errorName:
+          conversionError instanceof Error
+            ? conversionError.constructor.name
+            : "Unknown",
+        stack:
+          conversionError instanceof Error
+            ? conversionError.stack
+            : "No stack trace",
+      });
+
+      // Log the problematic message that caused the error
+      console.error(
+        `[${requestId}] Messages that caused conversion error:`,
+        JSON.stringify(messages, null, 2)
+      );
+      throw conversionError; // Re-throw to maintain error handling
+    }
+
     // Stream the response using AI SDK v5 - exactly like the docs
+    console.log(`[${requestId}] Starting streamText...`);
     const result = streamText({
       model: openai(model),
       system: enhancedSystemPrompt,
-      messages: convertToModelMessages(messages),
+      messages: convertedMessages,
       onFinish: async (result) => {
+        console.log(`[${requestId}] === onFinish callback started ===`);
+        console.log(`[${requestId}] Result usage:`, result.usage);
+
         // Track usage after completion
         const outputTokens = result.usage?.outputTokens || 500; // fallback estimate
         const totalTokens = inputTokens + outputTokens;
         const cost = tokenManager.calculateCost(inputTokens, outputTokens);
 
-        await trackUsage(currentUserId, totalTokens, model, cost);
+        console.log(`[${requestId}] Usage tracking:`, {
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          cost,
+          model,
+        });
+
+        try {
+          await trackUsage(currentUserId, totalTokens, model, cost);
+          console.log(`[${requestId}] Usage tracked successfully`);
+        } catch (usageError) {
+          console.error(`[${requestId}] Usage tracking failed:`, usageError);
+        }
 
         // Store important information in memory for future reference
+        console.log(`[${requestId}] === Memory storage starting ===`);
         if (latestUserMessage && latestUserMessage.parts) {
+          console.log(`[${requestId}] Processing memory for user message`);
+
           // Extract text content for memory storage
           const userContent = latestUserMessage.parts
             .filter((part: any) => part.type === "text")
             .map((part: any) => part.text || "")
             .join(" ");
+
+          console.log(
+            `[${requestId}] Extracted user content for memory:`,
+            userContent
+          );
 
           if (userContent) {
             try {
@@ -182,18 +338,48 @@ You remain helpful, respectful, and professional. Avoid unsafe or misleading out
                 role: latestUserMessage.role,
                 content: userContent,
               };
+              console.log(`[${requestId}] Storing memory:`, memoryMessage);
               await mem0Service.addMemory(currentUserId, [memoryMessage]);
+              console.log(`[${requestId}] Memory stored successfully`);
             } catch (memoryError) {
-              console.warn("Failed to store memory:", memoryError);
+              console.error(
+                `[${requestId}] Memory storage failed:`,
+                memoryError
+              );
             }
+          } else {
+            console.log(
+              `[${requestId}] No text content found for memory storage`
+            );
           }
+        } else {
+          console.log(
+            `[${requestId}] No latest user message or parts for memory`
+          );
         }
+
+        console.log(`[${requestId}] === onFinish callback completed ===`);
       },
     });
 
-    return result.toUIMessageStreamResponse();
+    console.log(
+      `[${requestId}] streamText created successfully, returning response...`
+    );
+    const response = result.toUIMessageStreamResponse();
+    console.log(`[${requestId}] === CHAT API END - Response created ===`);
+
+    return response;
   } catch (error) {
-    console.error("Chat API error:", error);
+    // Note: requestId might not be available if error occurs early
+    const requestId = "unknown";
+    console.error(`[${requestId}] ❌ CHAT API FATAL ERROR:`, {
+      error,
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+      errorName: error instanceof Error ? error.constructor.name : "Unknown",
+      stack: error instanceof Error ? error.stack : "No stack trace",
+      timestamp: new Date().toISOString(),
+    });
+
     const errorObj = error as Error;
 
     return new Response(
@@ -201,6 +387,8 @@ You remain helpful, respectful, and professional. Avoid unsafe or misleading out
         error: "Internal server error",
         details: errorObj.message,
         type: errorObj.constructor.name,
+        requestId: requestId,
+        timestamp: new Date().toISOString(),
       }),
       {
         status: 500,
