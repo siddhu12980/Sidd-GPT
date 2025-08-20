@@ -61,73 +61,98 @@ export default function ChatClient({
 
   const isMobile = useIsMobile();
 
+  // Add error state for handling API errors
+  const [apiError, setApiError] = useState<string | null>(null);
+
   // Use the new AI SDK v5 properly
-  const { messages, sendMessage, setMessages, stop, status, regenerate } =
-    useChat({
-      id: sessionId,
-      onFinish: async ({ message }) => {
-        console.log("AI response completed:", message);
+  const {
+    messages,
+    sendMessage,
+    setMessages,
+    stop,
+    status,
+    regenerate,
+    error,
+  } = useChat({
+    id: sessionId,
+    onError: (error: any) => {
+      console.error("useChat error:", error);
 
-        // Only save if it's an AI response and hasn't been saved already
-        if (
-          message &&
-          message.role === "assistant" &&
-          !savedMessageIds.current.has(message.id)
-        ) {
-          // Mark this message as being saved
-          savedMessageIds.current.add(message.id);
+      // Simply use the error message - the AI SDK already formats it properly
+      const errorMessage =
+        error?.message || "Something went wrong. Please try again.";
 
-          // Extract text content safely
-          let content = "";
-          if (message.parts) {
-            content = message.parts
-              .filter((p: any) => p.type === "text")
-              .map((p: any) => p.text || "")
-              .join("");
-          }
+      const trimmed_error_message = errorMessage.slice(0, 50);
 
-          const aiDbMessage: DatabaseMessage = {
-            id: message.id,
-            role: "assistant",
-            content: content,
-            type: "text",
-            createdAt: new Date().toISOString(),
-          };
+      const ellipsized_error_message = trimmed_error_message + "..."; // Add ellipsis to indicate truncation
 
-          try {
-            // Save AI response to database
-            const savedMessage = await addMessageMutation.mutateAsync({
-              conversationId: sessionId,
-              message: aiDbMessage,
-            });
+      setApiError(ellipsized_error_message);
+    },
+    onFinish: async ({ message }) => {
+      // Clear any previous errors on successful completion
+      setApiError(null);
+      console.log("AI response completed:", message);
 
-            console.log("AI message saved to database:", savedMessage);
+      // Only save if it's an AI response and hasn't been saved already
+      if (
+        message &&
+        message.role === "assistant" &&
+        !savedMessageIds.current.has(message.id)
+      ) {
+        // Mark this message as being saved
+        savedMessageIds.current.add(message.id);
 
-            // Update the message with the database ID so edit/delete work properly
-            if (savedMessage && savedMessage._id) {
-              const dbId = String(savedMessage._id);
-              setMessages((prevMessages) =>
-                prevMessages.map((msg) =>
-                  msg.id === message.id ? { ...msg, id: dbId, _id: dbId } : msg
-                )
-              );
-
-              // Update the saved message IDs with the new database ID
-              savedMessageIds.current.delete(message.id);
-              savedMessageIds.current.add(dbId);
-            }
-          } catch (error) {
-            console.error("Failed to save AI message:", error);
-            // Remove from saved set if save failed
-            savedMessageIds.current.delete(message.id);
-          }
-
-          console.log(
-            "AI response saved to database, title generation moved to handleMessage"
-          );
+        // Extract text content safely
+        let content = "";
+        if (message.parts) {
+          content = message.parts
+            .filter((p: any) => p.type === "text")
+            .map((p: any) => p.text || "")
+            .join("");
         }
-      },
-    });
+
+        const aiDbMessage: DatabaseMessage = {
+          id: message.id,
+          role: "assistant",
+          content: content,
+          type: "text",
+          createdAt: new Date().toISOString(),
+        };
+
+        try {
+          // Save AI response to database
+          const savedMessage = await addMessageMutation.mutateAsync({
+            conversationId: sessionId,
+            message: aiDbMessage,
+          });
+
+          console.log("AI message saved to database:", savedMessage);
+
+          // Update the message with the database ID so edit/delete work properly
+          if (savedMessage && savedMessage._id) {
+            const dbId = String(savedMessage._id);
+            setMessages((prevMessages) =>
+              prevMessages.map((msg) =>
+                msg.id === message.id ? { ...msg, id: dbId, _id: dbId } : msg
+              )
+            );
+
+            // Update the saved message IDs with the new database ID
+            savedMessageIds.current.delete(message.id);
+            savedMessageIds.current.add(dbId);
+          }
+        } catch (error) {
+          console.error("Failed to save AI message:", error);
+          // Remove from saved set if save failed
+          savedMessageIds.current.delete(message.id);
+        }
+
+        console.log(
+          "AI response saved to database, title generation moved to handleMessage"
+        );
+      }
+    },
+  });
 
   // Track saved message IDs to prevent duplicate saves
   const savedMessageIds = useRef(new Set<string>());
@@ -537,6 +562,7 @@ export default function ChatClient({
       {/* Main Content */}
       {currentPage === "chat" && (
         <MainChatScreen
+          isSidebarOpen={sidebarOpen}
           regenerate={regenerateMessage}
           messages={messages}
           sendMessage={sendMessage}
@@ -551,6 +577,10 @@ export default function ChatClient({
           userId={user?.id}
           stop={stop}
           setMessages={setMessages}
+          apiError={apiError}
+          onClearError={() => {
+            setApiError(null);
+          }}
         />
       )}
 

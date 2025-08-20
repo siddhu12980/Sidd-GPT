@@ -28,10 +28,28 @@ export const useIsMobile = () => {
 
   useEffect(() => {
     setMounted(true);
-    
-    const userAgent = navigator.userAgent;
-    const device = getMobileDetect(userAgent);
-    setIsMobile(device.isMobile());
+
+    const checkIsMobile = () => {
+      // Check both user agent and window width for responsive behavior
+      const userAgent = navigator.userAgent;
+      const device = getMobileDetect(userAgent);
+      const isUserAgentMobile = device.isMobile();
+
+      // Also check window width (768px is common mobile breakpoint)
+      const isWindowMobile = window.innerWidth < 768;
+
+      // Consider mobile if either user agent suggests mobile OR window is small
+      setIsMobile(isUserAgentMobile || isWindowMobile);
+    };
+
+    // Initial check
+    checkIsMobile();
+
+    // Listen for window resize events
+    window.addEventListener("resize", checkIsMobile);
+
+    // Cleanup event listener
+    return () => window.removeEventListener("resize", checkIsMobile);
   }, []);
 
   // Return false during SSR and initial render to prevent hydration mismatch

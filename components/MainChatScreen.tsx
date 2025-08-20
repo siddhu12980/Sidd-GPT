@@ -29,6 +29,7 @@ import { toConversationMessages, UIMessage } from "@/lib/message-utils";
 import { ChatRequestOptions } from "ai";
 
 export default function MainChatScreen({
+  isSidebarOpen,
   messages: initialMessages,
   sendMessage,
   status,
@@ -43,7 +44,10 @@ export default function MainChatScreen({
   regenerate,
   stop,
   setMessages,
+  apiError,
+  onClearError,
 }: {
+  isSidebarOpen: boolean;
   messages: any[];
   sendMessage: (message: { text: string; files?: FileList }) => void;
   status: string;
@@ -74,6 +78,8 @@ export default function MainChatScreen({
   userId?: string;
   stop: () => Promise<void>;
   setMessages: (messages: any[]) => void;
+  apiError?: string | null;
+  onClearError?: () => void;
 }) {
   const actionBtnRef = useRef<HTMLButtonElement>(null);
   const { signOut } = useClerk();
@@ -89,6 +95,7 @@ export default function MainChatScreen({
     top: number;
     left: number;
   } | null>(null);
+
 
   const avatarBtnRef = useRef<HTMLDivElement>(null);
 
@@ -317,6 +324,23 @@ export default function MainChatScreen({
             document.body
           )
         : null}
+
+      {/* API Error Banner */}
+      {apiError && !(isMobile && isSidebarOpen) && (
+        <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 mx-4 rounded-lg mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-sm font-medium">⚠️ {apiError}</p>
+            </div>
+            <button
+              onClick={onClearError}
+              className="text-red-300 hover:text-red-200 text-xs underline ml-4"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto pb-28 sm:pb-6 hide-scrollbar">
