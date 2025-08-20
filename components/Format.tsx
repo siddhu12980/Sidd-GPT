@@ -6,6 +6,7 @@ import rehypeRaw from "rehype-raw";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { CodeBlock } from "@/components/CodeBlocks";
+
 import "katex/dist/katex.min.css";
 
 const preprocessNumberFormatting = (content: string): string => {

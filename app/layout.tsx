@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "katex/dist/katex.min.css"; // KaTeX CSS for math rendering
 import { Providers } from "./providers";
 import { SearchProvider } from "@/components/GlobalSearchShortcut";
 

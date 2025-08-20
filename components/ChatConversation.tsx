@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Edit, Trash2, Brain } from "lucide-react";
 import ChatActionBar from "./ChatActionBar";
 import "./hide-scrollbar.css";
-// import { Markdown } from "./Format";
+import { Markdown as MarkdownComponent } from "./Format";
 import { Markdown } from "@/components/markdown";
 import { toast } from "sonner";
 import { ChatRequestOptions } from "ai";
@@ -13,6 +13,7 @@ import {
   toSendMessageFormat,
   toUIMessages,
 } from "@/lib/message-utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function ChatConversation({
   handleMessage,
@@ -77,6 +78,36 @@ export default function ChatConversation({
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  // Mobile detection for responsive markdown component
+  const isMobile = useIsMobile();
+
+  // Helper function to render the appropriate markdown component based on screen size
+  const renderMarkdown = (content: string) => {
+    if (isMobile) {
+      // Use optimized Markdown component for mobile
+      return <Markdown>{content}</Markdown>;
+    } else {
+      // Use MarkdownComponent for web/desktop
+      return <MarkdownComponent>{content}</MarkdownComponent>;
+    }
+  };
+
+  // Alternative CSS-based approach (more performant, no JS detection needed)
+  const renderMarkdownResponsive = (content: string) => {
+    return (
+      <>
+        {/* Mobile markdown - shown only on small screens */}
+        <div className="block md:hidden">
+          <Markdown>{content}</Markdown>
+        </div>
+        {/* Desktop markdown - hidden on small screens */}
+        <div className="hidden md:block">
+          <MarkdownComponent>{content}</MarkdownComponent>
+        </div>
+      </>
+    );
+  };
 
   useEffect(() => {
     if (lastMessageRef.current) {
@@ -312,7 +343,11 @@ export default function ChatConversation({
                       </a>
                     );
                   } else {
-                    return <Markdown>{message.content}</Markdown>;
+                    // Choose one of these approaches:
+                    // 1. JavaScript-based detection (current)
+                    return renderMarkdown(message.content);
+                    // 2. CSS-based responsive (alternative - more performant)
+                    // return renderMarkdownResponsive(message.content);
                   }
                 })()}
               </div>
