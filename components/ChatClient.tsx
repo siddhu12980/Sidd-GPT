@@ -122,50 +122,9 @@ export default function ChatClient({
             savedMessageIds.current.delete(message.id);
           }
 
-          console.log("sessionTitle", sessionTitle);
-          // Generate title if needed
-          const shouldGenerateTitle =
-            (sessionTitle === "New Chat" ||
-              !sessionTitle ||
-              sessionTitle === "ChatGPT") &&
-            messages.length >= 2;
-
-          if (shouldGenerateTitle) {
-            console.log("Generating title");
-            const recentMessages = messages.slice(-4);
-            const context = recentMessages
-              .map((msg) => {
-                // Extract text content from parts
-                let content = "";
-                if (msg.parts && Array.isArray(msg.parts)) {
-                  content = msg.parts
-                    .filter((p: any) => p.type === "text")
-                    .map((p: any) => p.text || "")
-                    .join(" ");
-                }
-                return `${msg.role}: ${content}`;
-              })
-              .join("\n");
-
-            try {
-              const { title } = await generateTitleMutation.mutateAsync({
-                sessionId,
-                context,
-              });
-
-              console.log("title", title);
-
-              if (title) {
-                await updateConversationMutation.mutateAsync({
-                  id: sessionId,
-                  data: { title: title },
-                });
-                refetchConversations();
-              }
-            } catch (error) {
-              console.error("Failed to generate title:", error);
-            }
-          }
+          console.log(
+            "AI response saved to database, title generation moved to handleMessage"
+          );
         }
       },
     });
@@ -444,6 +403,46 @@ export default function ChatClient({
         }
       } catch (error) {
         console.error("Failed to save user message:", error);
+      }
+    }
+
+    // Generate title after sending user message (this will be fast!)
+    // Title generation moved here from onFinish for better timing and faster response
+    const shouldGenerateTitle =
+      (sessionTitle === "New Chat" ||
+        !sessionTitle ||
+        sessionTitle === "ChatGPT") &&
+      messages.length >= 1; // We just sent a user message, so >=1 is enough
+
+    console.log("Title generation check:", {
+      sessionTitle,
+      messagesLength: messages.length,
+      shouldGenerate: shouldGenerateTitle,
+    });
+
+    if (shouldGenerateTitle) {
+      console.log("Generating title from user message immediately");
+
+      // Use the current user message for context
+      const context = `user: ${message.content}`;
+
+      try {
+        const { title } = await generateTitleMutation.mutateAsync({
+          sessionId,
+          context,
+        });
+
+        console.log("Generated title:", title);
+
+        if (title) {
+          await updateConversationMutation.mutateAsync({
+            id: sessionId,
+            data: { title: title },
+          });
+          refetchConversations();
+        }
+      } catch (error) {
+        console.error("Failed to generate title:", error);
       }
     }
   };
