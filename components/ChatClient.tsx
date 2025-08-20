@@ -241,9 +241,9 @@ export default function ChatClient({
     console.log("User message to regenerate from:", userMessage);
 
     try {
-      // 1. Delete messages from backend (from the user message onwards, including target)
+      // 1. Delete messages from backend (from the AI message onwards, excluding user message)
       const deleteResponse = await fetch(
-        `/api/conversations/${sessionId}/messages?after=${userMessage.id}&includeTarget=true`,
+        `/api/conversations/${sessionId}/messages?after=${userMessage.id}&includeTarget=false`,
         {
           method: "DELETE",
         }
@@ -257,9 +257,9 @@ export default function ChatClient({
         return;
       }
 
-      // 2. Update UI to show only messages up to (but not including) the user message
-      const newMessages = messages.slice(0, userMessageIndex);
-      setMessages([...newMessages, userMessage]); // Keep the user message
+      // 2. Update UI to show only messages up to and including the user message
+      const newMessages = messages.slice(0, userMessageIndex + 1);
+      setMessages(newMessages); // Keep messages up to and including the user message
 
       // 3. Use regenerate to trigger AI response from the user message
       console.log("Using regenerate to regenerate AI response");
