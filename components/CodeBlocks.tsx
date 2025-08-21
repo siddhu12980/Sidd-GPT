@@ -6,9 +6,8 @@ import {
   oneDark,
   duotoneLight,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
-
-import { vs } from "react-syntax-highlighter/dist/esm/styles/prism";
-
+import { atomDark } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { vs } from "react-syntax-highlighter/dist/esm/styles/hljs";
 interface CodeBlockProps {
   node: any;
   inline: boolean;
@@ -29,10 +28,7 @@ export function CodeBlock({
   const match = /language-(\w+)/.exec(className || "");
   const language = match ? match[1] : "";
 
-  const isDarkMode =
-    typeof window !== "undefined" &&
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDarkMode = true;
 
   const handleCopy = async () => {
     const text = Array.isArray(children) ? children.join("") : String(children);
@@ -47,7 +43,7 @@ export function CodeBlock({
 
   if (!inline) {
     return (
-      <div className="not-prose my-4 w-full max-w-3xl min-w-0 overflow-x-auto rounded-xl bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 relative pt-6">
+      <div className="not-prose my-4 w-full max-w-3xl min-w-0 overflow-x-auto rounded-xl bg-zinc-900 border-zinc-800 relative pt-6">
         {/* Language label */}
         {language && (
           <span
@@ -62,7 +58,7 @@ export function CodeBlock({
           type="button"
           onClick={handleCopy}
           aria-label="Copy code"
-          className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1 py-0.5 bg-transparent text-gray-400 hover:text-gray-600 dark:text-zinc-400 dark:hover:text-zinc-200 border-none shadow-none text-xs font-normal"
+          className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1 py-0.5 bg-transparent  text-zinc-400 hover:text-zinc-200 border-none shadow-none text-xs font-normal"
           style={{ boxShadow: "none" }}
         >
           <svg
@@ -104,7 +100,7 @@ export function CodeBlock({
 
         <SyntaxHighlighter
           language={language}
-          style={oneDark}
+          style={isDarkMode ? atomDark : oneDark}
           customStyle={{
             margin: 0,
             fontSize: "0.9rem",
@@ -124,7 +120,7 @@ export function CodeBlock({
 
   return (
     <code
-      className={`${className} text-sm bg-zinc-100 dark:bg-zinc-800 py-0.5 px-1 rounded-md font-mono`}
+      className={`${className} text-sm bg-zinc-800 py-0.5 px-1 rounded-md font-mono`}
       {...props}
     >
       {children}
